@@ -67,19 +67,25 @@
 
   const ATTR_URLISH = /^(src|href|poster|data-[\w-]*(src|url|poster|id|video|media|thumb)[\w-]*|content-href|permalink|post-id|id)$/i;
   const ATTR_TITLE = /^(post-title|title|aria-label|data-title|alt|data-caption)$/i;
+  // labels that describe the widget, not the content
+  const GENERIC_TITLE = /^(video( player)?|player|media( player)?|play(back)?|thumbnail|poster|image|photo|untitled|loading.*|watch|embed(ded)?( video)?|html5 video( player)?|video thumbnail)$/i;
 
   function describe(v) {
     const rec = cache.get(keyOf(v)) || { key: keyOf(v) };
     rec.el = v;
     const tokens = new Set(rec.tokens || []);
-    let poster = null, title = null, link = null, container = null;
+    let poster = null, title = null, titleScore = 0, link = null, container = null;
     let el = v, hops = 0;
     while (el && hops < 12) {
       const tag = el.tagName ? el.tagName.toLowerCase() : '';
       for (const a of safe(() => [...el.attributes], [])) {
         if (ATTR_URLISH.test(a.name) || /https?:\/\//.test(a.value)) for (const t of urlTokens(a.value)) tokens.add(t);
         if (!poster && /poster|thumb|preview|cover/i.test(a.name) && /^(https?:)?\/\/|^\//.test(a.value)) poster = abs(a.value);
-        if (!title && ATTR_TITLE.test(a.name) && a.value.trim().length > 3 && a.value.length < 300) title = a.value.trim();
+        if (ATTR_TITLE.test(a.name) && a.value.trim().length > 3 && a.value.length < 300 && !GENERIC_TITLE.test(a.value.trim())) {
+          // post/data titles on ancestors beat aria-labels on the player itself
+          const score = /^(post-title|data-title|data-caption)$/i.test(a.name) ? 3 : /^title$/i.test(a.name) ? 2 : 1;
+          if (score > titleScore) { title = a.value.trim(); titleScore = score; }
+        }
         if (!link && /^(permalink|content-href|data-permalink|data-href)$/i.test(a.name) && /^(https?:)?\/\/|^\//.test(a.value)) link = abs(a.value);
       }
       if (!link && tag === 'a' && el.href) link = el.href;
@@ -90,10 +96,10 @@
     }
     for (const u of [v.currentSrc, v.src]) if (u && !u.startsWith('blob:')) for (const t of urlTokens(u)) tokens.add(t);
     if (!poster && v.poster) poster = abs(v.poster);
-    if (!title && container) {
+    if (titleScore < 2 && container) {
       const h = container.querySelector('h1,h2,h3,[slot="title"],[class*="title" i]');
-      const txt = h && h.textContent.trim();
-      if (txt && txt.length > 3) title = txt.slice(0, 160);
+      const txt = h && h.textContent.trim().replace(/\s+/g, ' ');
+      if (txt && txt.length > 3 && !GENERIC_TITLE.test(txt)) { title = txt.slice(0, 160); titleScore = 2; }
     }
     if (!link && container) {
       const a = container.querySelector('a[href*="/video"],a[href*="/watch"],a[slot="full-post-link"],a[href]');
