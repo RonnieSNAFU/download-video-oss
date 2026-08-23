@@ -156,9 +156,6 @@ $('dl').addEventListener('click', () => {
   hint(`${videos.length} download${videos.length > 1 ? 's' : ''} started. You can close this popup.`);
 });
 
-  navigator.clipboard.writeText(lines.join('\n')).then(() => { $('copy').textContent = 'Copied!'; setTimeout(() => ($('copy').textContent = 'Copy yt-dlp cmd'), 1500); });
-});
-
 // ---------- user-assist tools ----------
 $('pick').addEventListener('click', async () => {
   try {
