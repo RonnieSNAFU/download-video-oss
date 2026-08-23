@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 360px; margin: 0; padding: 12px; font: 13px system-ui, sans-serif; background: #111827; color: #fff; }
+  .empty { opacity: .8; text-align: center; padding: 18px 8px 10px; line-height: 1.5; }
+  .hdr { font-size: 11px; opacity: .6; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; display: flex; justify-content: space-between; align-items: center; }
+  .hdr a { color: #f472b6; cursor: pointer; text-transform: none; letter-spacing: 0; }
+
+  /* scrollable list of detected sources */
+  #list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding-right: 2px; }
+  #list::-webkit-scrollbar { width: 6px; } #list::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  .item { position: relative; display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 8px; background: #1f2937; border: 2px solid transparent; cursor: pointer; user-select: none; }
+  .item:hover { background: #273244; }
+  .item.sel { border-color: #e11d74; background: #2a1b2a; }
+  .check { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; background: #e11d74; color: #fff; font: 700 12px/18px system-ui; text-align: center; display: none; }
+  .item.sel .check { display: block; }
+  .thumb { width: 96px; height: 54px; flex: none; border-radius: 6px; background: #000 center/cover no-repeat; display: grid; place-items: center; font-size: 11px; opacity: .9; }
+  .thumb.none { color: #9ca3af; background: #0b1220; }
+  .info { min-width: 0; flex: 1; }
+  .t { font-weight: 600; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .m { font: 11px ui-monospace, monospace; opacity: .65; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { display: inline-block; font: 600 10px system-ui; padding: 1px 5px; border-radius: 4px; background: #374151; margin-right: 4px; vertical-align: middle; }
+  .tag.hls { background: #0e7490; } .tag.file { background: #4d7c0f; } .tag.dash { background: #6b7280; } .tag.merge { background: #7c3aed; } .tag.manual { background: #b45309; } .tag.picked { background: #be185d; } .tag.link { background: #1d4ed8; }
+  .jbar { height: 4px; background: #374151; border-radius: 2px; margin-top: 5px; overflow: hidden; display: none; }
+  .jbar i { display: block; height: 100%; width: 0; background: #e11d74; transition: width .2s; }
+  .jst { font-size: 10px; margin-top: 2px; opacity: .8; display: none; }
+  .item.has-job .jbar, .item.has-job .jst { display: block; }
+  .jst.err { color: #f87171; } .jst.ok { color: #4ade80; }
+  .clipbtn { position: absolute; top: 4px; right: 4px; background: #374151; color: #fff; border: 0; border-radius: 6px; font: 600 10px system-ui; padding: 3px 6px; cursor: pointer; flex: none; }
+  .clipbtn:hover { background: #4b5563; } .clipbtn.on { background: #e11d74; }
+
+  .row { display: flex; gap: 8px; }
+  button { flex: 1; padding: 10px 8px; border: 0; border-radius: 8px; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #dl { background: #e11d74; } #copy { background: #374151; }
+  .tools { display: flex; gap: 6px; margin-top: 10px; }
+  .tools button { background: #1f2937; font-size: 11px; padding: 7px 4px; color: #d1d5db; }
+  .tools button:hover { background: #273244; }
+  #addbox { display: none; margin-top: 8px; gap: 6px; }
+  #addbox.open { display: flex; }
+  #addurl { flex: 1; padding: 7px 8px; border-radius: 6px; border: 1px solid #374151; background: #0b1220; color: #fff; font: 12px ui-monospace, monospace; min-width: 0; }
+  #addgo { flex: none; padding: 7px 10px; background: #b45309; font-size: 12px; }
+  .hint { font-size: 11px; opacity: .7; margin-top: 6px; line-height: 1.4; }
+  .foot { margin-top: 10px; font-size: 10px; opacity: .5; text-align: center; }
+</style>
+</head>
+<body>
+  <div id="empty" class="empty">No video detected on this tab yet.<br><br>Start playing the video, then reopen this popup. Or use the tools below.</div>
+  <div id="card" hidden>
+    <p class="hdr"><span id="hdr"></span><a id="selall">select all</a></p>
+    <div id="list"></div>
+    <div class="row">
+      <button id="dl">⬇ Download</button>
+      <button id="copy">Copy yt-dlp cmd</button>
+    </div>
+  </div>
+  <label id="linkrow" class="hint" style="display:none;align-items:center;gap:8px;cursor:pointer;margin-top:8px">
+    <input id="linktoggle" type="checkbox" style="accent-color:#e11d74"> <span id="linklabel"></span>
+  </label>
+  <div class="tools">
+    <button id="pick" title="Click the video on the page you want">🎯 Pick on page</button>
+    <button id="addtoggle" title="Paste a .m3u8, .mp4 or .mpd URL (for example from DevTools, Network tab)">＋ Add URL</button>
+    <button id="diag" title="Copies a report of what the extension saw on this page. Send it to get the site supported.">🩺 Diagnostics</button>
+  </div>
+  <div id="addbox"><input id="addurl" placeholder="https://…/playlist.m3u8 or …/video.mp4"><button id="addgo">Add</button></div>
+  <div id="hint" class="hint"></div>
+  <div class="foot">Download Video OSS</div>
+  <script src="popup.js"></script>
+</body>
+</html>

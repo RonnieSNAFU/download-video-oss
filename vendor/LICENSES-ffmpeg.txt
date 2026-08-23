@@ -1,0 +1,1 @@
+ffmpeg.wasm (@ffmpeg/ffmpeg 0.12.15, @ffmpeg/core 0.12.10) — MIT licensed wrapper; the core bundles FFmpeg with libx264/libvpx/libmp3lame/libopus and is distributed under the GPL/LGPL terms of those projects. See https://github.com/ffmpegwasm/ffmpeg.wasm

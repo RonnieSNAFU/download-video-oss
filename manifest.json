@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Download Video OSS",
+  "version": "1.0.0",
+  "description": "Open-source video downloader. Detects videos (page data + network sniffing) on any site and saves them as MP4 from the toolbar popup.",
+  "homepage_url": "https://github.com/RonnieSNAFU/download-video-oss",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "webRequest",
+    "webNavigation",
+    "downloads",
+    "offscreen",
+    "declarativeNetRequest",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Download Video OSS",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "core/registry.js",
+        "core/dom.js",
+        "core/clipmodal.js",
+        "sites/nextjs-ev.js",
+        "sites/kvs.js",
+        "sites/adaptive.js",
+        "sites/microblog.js",
+        "sites/mediadefs.js",
+        "sites/imageboard.js",
+        "sites/generic.js",
+        "core/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
