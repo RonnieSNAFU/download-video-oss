@@ -233,7 +233,7 @@ async function runJob(job) {
       }
       setJob(jobId, { downloadId });
     } else {
-      throw new Error(`${type.toUpperCase()} streams are not supported yet. Use "Copy yt-dlp cmd".`);
+      throw new Error(`${type.toUpperCase()} streams are not supported yet.`);
     }
   } catch (e) {
     setJob(jobId, { state: 'error', error: e.message });

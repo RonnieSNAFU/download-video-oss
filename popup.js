@@ -89,7 +89,6 @@ function renderButtons() {
   const dashOnly = sel.length && sel.every((c) => c.source.type === 'dash');
   dl.disabled = !sel.length || dashOnly;
   dl.textContent = !sel.length ? '⬇ Download (select a video)' : dashOnly ? 'DASH not supported yet' : sel.length === 1 ? '⬇ Download' : `⬇ Download ${sel.length} selected`;
-  $('copy').disabled = !sel.length;
 }
 
 let pageHost = '';
@@ -157,13 +156,6 @@ $('dl').addEventListener('click', () => {
   hint(`${videos.length} download${videos.length > 1 ? 's' : ''} started. You can close this popup.`);
 });
 
-$('copy').addEventListener('click', () => {
-  const sel = candidates.filter((c) => selected.has(c.candidateId));
-  if (!sel.length) return;
-  const lines = sel.map((v) => {
-    const direct = (v.site === 'network' || v.site === 'manual' || v.site === 'link') && v.source.url;
-    return direct ? `yt-dlp --referer "${v.pageUrl}" "${v.source.url}"` : `yt-dlp "${v.pageUrl}"`;
-  });
   navigator.clipboard.writeText(lines.join('\n')).then(() => { $('copy').textContent = 'Copied!'; setTimeout(() => ($('copy').textContent = 'Copy yt-dlp cmd'), 1500); });
 });
 

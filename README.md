@@ -25,7 +25,7 @@ The popup lists every candidate with a thumbnail, title, type and duration. Clic
   works in VLC, Windows Media Player and everything else.
 - Split streams: video-only and audio-only streams are fetched in 10 MB ranges and merged into one MP4.
 - Direct files: saved through `chrome.downloads`, streamed straight to disk.
-- DASH: detected but not downloadable yet. Use "Copy yt-dlp cmd".
+- DASH: detected but not downloadable yet.
 - Downloads run outside the tab (background worker plus an offscreen document), so the popup can
   be closed. The badge shows progress. Two jobs run at a time per tab; each card has its own bar.
 - A session `declarativeNetRequest` rule sends the page URL as Referer on the engine's own
