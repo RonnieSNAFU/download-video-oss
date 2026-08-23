@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Download Video OSS",
-  "version": "1.0.2",
-  "description": "Open-source video downloader. Detects videos (page data + network sniffing) on any site and saves them as MP4 from the toolbar popup.",
+  "version": "1.0.3",
+  "description": "Find and save videos from any site as MP4. Trim and convert clips (WebM, GIF, MP3) in a built-in editor. Open source.",
   "homepage_url": "https://github.com/RonnieSNAFU/download-video-oss",
   "icons": {
     "16": "icons/icon16.png",
