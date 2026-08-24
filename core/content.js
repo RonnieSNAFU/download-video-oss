@@ -262,43 +262,72 @@
   function startPick() {
     if (startPick.active) return;
     startPick.active = true;
+
     const banner = document.createElement('div');
-    banner.textContent = 'Download Video OSS: click the video you want (Esc cancels)';
-    Object.assign(banner.style, { position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 2147483647, background: '#e11d74', color: '#fff',
-      font: '600 14px system-ui', padding: '10px 16px', borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,.4)', pointerEvents: 'none' });
-    document.documentElement.appendChild(banner);
+    const say = (text, color) => {
+      banner.textContent = text;
+      Object.assign(banner.style, {
+        position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: 2147483647,
+        background: color || '#e11d74', color: '#fff', font: '600 14px system-ui', padding: '10px 16px',
+        borderRadius: '10px', boxShadow: '0 4px 16px rgba(0,0,0,.4)', pointerEvents: 'none',
+      });
+      if (!banner.isConnected) document.documentElement.appendChild(banner);
+    };
+    say('Download Video OSS: click the video you want (Esc cancels)');
+
     const prevCursor = document.documentElement.style.cursor;
     document.documentElement.style.cursor = 'crosshair';
+
+    // point -> player: the box test first (sites stack transparent overlays over their players),
+    // then a walk up from whatever is under the cursor
+    const videoAt = (x, y) => {
+      const byBox = window.DVO.dom && window.DVO.dom.videoAtPoint(x, y);
+      return byBox || nearestVideo(deepElementFromPoint(x, y));
+    };
+
     let hover = null;
     const onMove = (e) => {
-      const v = nearestVideo(deepElementFromPoint(e.clientX, e.clientY));
-      if (v && v !== hover) { hover = v; window.DVO.dom && window.DVO.dom.highlight(v, 1500); }
+      const v = videoAt(e.clientX, e.clientY);
+      if (v !== hover) {
+        hover = v;
+        // never scroll while hovering: the page would move under the cursor and the pick would chase it
+        if (v && window.DVO.dom) window.DVO.dom.highlight(v, 1200, { scroll: false });
+      }
     };
+
+    const EVENTS = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick', 'contextmenu', 'auxclick'];
+    const swallow = (e) => { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
+
     const finish = () => {
       startPick.active = false;
-      banner.remove();
       document.documentElement.style.cursor = prevCursor;
       window.removeEventListener('mousemove', onMove, true);
-      window.removeEventListener('click', onClick, true);
       window.removeEventListener('keydown', onKey, true);
+      for (const t of EVENTS) window.removeEventListener(t, onDown, true);
     };
-    const onClick = (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const v = nearestVideo(deepElementFromPoint(e.clientX, e.clientY));
+
+    // Pick on pointerdown and swallow the rest of the gesture: many sites navigate on mousedown or
+    // mouseup, which would tear down the page before the pick registers.
+    const onDown = (e) => {
+      swallow(e);
+      if (e.type !== 'pointerdown' && e.type !== 'mousedown') return;
+      const v = videoAt(e.clientX, e.clientY);
       finish();
-      if (!v) { banner.textContent = 'No <video> element there.'; document.documentElement.appendChild(banner); setTimeout(() => banner.remove(), 2000); return; }
+      if (!v) { say('No video found there. Try again from the extension.', '#b45309'); setTimeout(() => banner.remove(), 2600); return; }
       picked = { el: v, at: Date.now(), streams: new Set() };
-      // streams currently buffering for this player were likely requested moments ago: include the
-      // most recent sniffed entries if the player is mid-playback
-      if (!v.paused && v.readyState >= 2) picked.at -= 15000;
-      window.DVO.dom && window.DVO.dom.highlight(v, 2500);
-      v.play && v.play().catch(() => {});
+      // a player that already has data requested its stream a moment ago: look back a little
+      if (v.readyState >= 2) picked.at -= 20000;
+      if (window.DVO.dom) window.DVO.dom.highlight(v, 2500);
+      if (v.paused && v.play) v.play().catch(() => {});
       detect().catch(() => {});
+      say('Picked. Open the extension to download or clip it.', '#15803d');
+      setTimeout(() => banner.remove(), 3200);
     };
-    const onKey = (e) => { if (e.key === 'Escape') finish(); };
+
+    const onKey = (e) => { if (e.key === 'Escape') { finish(); banner.remove(); } };
     window.addEventListener('mousemove', onMove, true);
-    window.addEventListener('click', onClick, true);
     window.addEventListener('keydown', onKey, true);
+    for (const t of EVENTS) window.addEventListener(t, onDown, true);
   }
 
   function addManualUrl(url) {

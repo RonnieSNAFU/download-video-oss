@@ -176,14 +176,14 @@
     const m = match(streamUrl);
     return m && m.rec.el && m.rec.el.isConnected ? m.rec.el : null;
   }
-  function highlight(el, ms = 3000) {
+  function highlight(el, ms = 3000, opts = {}) {
     return safe(() => {
       if (!el) return false;
       // outline the visible player box (the <video> or its nearest sized ancestor)
       let box = el, hops = 0;
       while (box && hops < 4 && box.getBoundingClientRect().width < 40) { box = parentOf(box); hops++; }
       if (!box) box = el;
-      box.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      if (opts.scroll !== false) box.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
       if (!hl) {
         hl = document.createElement('div');
         hl.id = 'dvo-highlight';
@@ -204,7 +204,22 @@
     }, false);
   }
 
+  // Smallest player whose box contains the point. Beats elementFromPoint, which returns whatever
+  // transparent overlay the site stacks on top of its player.
+  function videoAtPoint(x, y) {
+    return safe(() => {
+      const hits = [];
+      for (const v of allVideos()) {
+        const r = v.getBoundingClientRect();
+        if (r.width < 20 || r.height < 20) continue;
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) hits.push({ v, area: r.width * r.height });
+      }
+      hits.sort((a, b) => a.area - b.area);
+      return hits.length ? hits[0].v : null;
+    });
+  }
+
   window.DVO = window.DVO || {};
-  window.DVO.dom = { allVideos, describe, refresh, match, enrich, cache, urlTokens, elementFor, highlight };
+  window.DVO.dom = { allVideos, describe, refresh, match, enrich, cache, urlTokens, elementFor, highlight, videoAtPoint };
   start();
 })();

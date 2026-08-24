@@ -160,7 +160,7 @@ $('dl').addEventListener('click', () => {
 $('pick').addEventListener('click', async () => {
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'pick' });
-    hint('Click the video on the page (Esc cancels). If it streams, let it play for a few seconds, then reopen this popup.', 0);
+    hint('Click the video on the page (Esc cancels), then open this popup again.', 0);
     window.close(); // the popup must close so you can click the page
   } catch { hint('Reload the page first, then try again.'); }
 });
