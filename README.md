@@ -97,13 +97,12 @@ Engine notes: ffmpeg.wasm (vendored, about 32 MB, single-threaded) does cutting,
 MP3 and the decode step for the WebCodecs path. libvpx-vp9 and libopus crash in this wasm build,
 which is why VP9 and Opus go through WebCodecs instead.
 
-## Known limitation: some sites, including YouTube
-A few sites sign each stream for the player session that asked for it, and increasingly deliver
-media over a protocol with no plain URL to reuse. Nothing outside that player can fetch those
-streams, so downloads fail with HTTP 403. Player capture (above) works around it for what has
-already played, but there is no way to grab an unplayed video from such a site in the browser.
-For those, a desktop tool that runs the site's own player code, such as yt-dlp, is the right
-answer. Everything else the extension covers needs no such machinery.
+## Not supported: YouTube
+YouTube delivers its media so that only its own player may request it, and that check happens on
+their servers. No browser extension can download it, so the extension does not try: on those
+domains it detects nothing and shows a short note pointing at a desktop tool such as
+[yt-dlp](https://github.com/yt-dlp/yt-dlp), which runs the player code of the site itself. Player
+capture is disabled there as well, so no tab memory is spent on it.
 
 ## Install
 `chrome://extensions`, turn on Developer mode, Load unpacked, pick this folder.

@@ -81,7 +81,18 @@
     } catch { return `${kind.toUpperCase()} · ${url.slice(0, 60)}`; }
   }
 
+  // Sites whose media only their own player may request. Detection there produces entries that
+  // always fail, so say so plainly instead.
+  const UNSUPPORTED = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i;
+  const unsupported = UNSUPPORTED.test(location.hostname);
+
   async function detect() {
+    if (unsupported) {
+      const had = candidates.length;
+      candidates = [];
+      if (had) chrome.runtime.sendMessage({ type: 'detected', video: null, count: 0 }).catch(() => {});
+      return;
+    }
     await loadLinkScan();
     const list = [];
     try {
@@ -530,7 +541,7 @@
       // always answer, even if detection throws: the popup must never hang
       Promise.race([detect(), new Promise((r) => setTimeout(r, 4000))])
         .catch((e) => console.warn('[DVO] detect failed', e))
-        .finally(() => sendResponse({ candidates, linkScan, linkCount, host: location.hostname }));
+        .finally(() => sendResponse({ candidates, linkScan, linkCount, host: location.hostname, unsupported }));
       return true; // async
     }
     return false;

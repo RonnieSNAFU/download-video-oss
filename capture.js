@@ -5,6 +5,8 @@
 // where a stream URL is signed for the player alone. It only holds what has actually played.
 (() => {
   if (window.__dvoCapture) return;
+  // pointless on sites we do not support: do not spend the tab's memory on it
+  if (/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i.test(location.hostname)) return;
   const MS = window.MediaSource;
   const SB = window.SourceBuffer;
   if (!MS || !SB) return;

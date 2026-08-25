@@ -107,6 +107,19 @@ function renderLinkRow(state) {
 }
 
 function render(state) {
+  if (state && state.unsupported) {
+    $('linkrow').style.display = 'none';
+    $('card').hidden = true;
+    $('empty').hidden = false;
+    $('empty').innerHTML = '<b>This site is not supported.</b><br><br>'
+      + 'Its videos are delivered so that only its own player may request them, and that check runs on '
+      + 'their servers. No browser extension can download them, this one included.<br><br>'
+      + 'Use a desktop tool instead: <a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp</a>, '
+      + 'or one of its graphical front ends. Those run the player code of the site itself, which an extension cannot.'
+      + '<br><br>You can still use <b>Clip a file</b> below on a video you already have.';
+    candidates = [];
+    return;
+  }
   renderLinkRow(state);
   candidates = (state && state.candidates) || [];
   $('empty').hidden = candidates.length > 0;
