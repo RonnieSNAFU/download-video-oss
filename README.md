@@ -31,6 +31,18 @@ The popup lists every candidate with a thumbnail, title, type and duration. Clic
 - A session `declarativeNetRequest` rule sends the page URL as Referer on the engine's own
   requests, because many CDNs refuse segment requests without one.
 
+## Streams a site will not hand over (player capture)
+Some sites sign their stream URLs for their own player, so fetching one anywhere else is refused.
+For those, `capture.js` keeps a copy of the media the page's player feeds to the decoder
+(`SourceBuffer.appendBuffer`), which needs no request of its own. Entries tagged FROM PLAYER are
+assembled from that: fragmented MP4 goes through the MP4 writer, WebM through `webmremux.js`, and
+video and audio are merged into one file.
+
+It only holds what has actually played, so let the video run through at the quality you want
+before downloading, and pick the quality in the player first. Clipping is not available for these
+entries because the data lives in the page, not in the extension; download first, then clip the
+file. Encrypted (DRM) streams stay out of reach.
+
 ## Pages that only link to videos (imageboards, forums, directory listings)
 Nothing plays, so nothing is sniffed. Tick "Scan page links for video files on <site>" in the
 popup to list every linked `.mp4/.webm/.mov/.m3u8` with its thumbnail. Off by default because a
@@ -113,3 +125,4 @@ and add it to `content_scripts.js` in `manifest.json` before `sites/generic.js`.
 - `sites/*.js`: site plugins (named by the player technique they handle) and the generic fallback
 - `popup.html` / `popup.js`
 - `mux.min.js` (TS to fMP4), `mp4fix.js` (fMP4 to progressive MP4, MP4 sample reader)
+- `capture.js` (player capture, page world), `webm.js` + `webmremux.js` (WebM muxer and stream reader)

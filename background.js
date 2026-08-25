@@ -219,6 +219,12 @@ async function runJob(job) {
   setJob(jobId, { state: 'running', percent: 0 });
   try {
     const { type, url } = video.source;
+    if (type === 'captured') { // assembled in the page from what its player buffered
+      const base = video.filenameBase ? safeName(video.filenameBase) : `${safeName(video.title)} [${video.id}]`;
+      const r = await chrome.tabs.sendMessage(tabId, { type: 'captureSave', jobId, groupId: video.source.groupId, filename: base }).catch(() => null);
+      if (!r || !r.ok) throw new Error((r && r.error) || 'capture unavailable');
+      return; // the page reports progress and saves the file
+    }
     // Some hosts hand out URLs that only work for the session that requested them and refuse a fresh
     // request from the downloads API. Fetching them from the extension page works, so use the engine.
     const sessionBound = type === 'file' && (job.viaEngine || SESSION_BOUND.test(hostOf(url)));
@@ -313,7 +319,7 @@ function handle(msg, tabId, sendResponse) {
       updateBadge(tabId);
       break;
     case 'injectPreview': // clip editor needs mux.js + mp4fix + preview loader in the page (isolated world)
-      chrome.scripting.executeScript({ target: { tabId }, files: ['mux.min.js', 'mp4fix.js', 'core/preview.js'] })
+      chrome.scripting.executeScript({ target: { tabId }, files: ['mux.min.js', 'mp4fix.js', 'webm.js', 'webmremux.js', 'core/preview.js'] })
         .then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e.message }));
       return true;
     case 'getJobs':

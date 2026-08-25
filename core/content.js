@@ -235,6 +235,23 @@
         });
       }
     }
+    // whatever the page's player has already played, which needs no request of its own
+    const cap = await askCapture('status');
+    for (const g of (cap && cap.groups) || []) {
+      if (!g.bytes || g.bytes < 300000) continue;
+      const vids = window.DVO.dom ? window.DVO.dom.allVideos() : [];
+      const el = vids.find((v) => v.currentSrc === g.url) || (vids.length === 1 ? vids[0] : null);
+      const rec = el && window.DVO.dom ? window.DVO.dom.describe(el) : null;
+      net.push({
+        id: `capture-${g.id}`,
+        title: (rec && rec.title) || meta.title,
+        thumbnail: abs((rec && (rec.frame || rec.poster)) || meta.thumbnail),
+        duration: el && Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null,
+        pageUrl: location.href, site: 'captured',
+        source: { type: 'captured', groupId: g.id, bytes: g.bytes },
+        candidateId: `cap:${g.id}`, label: 'captured',
+      });
+    }
     // user-added URLs
     for (const m of manual) {
       if (seen.has(m.url)) continue;
@@ -423,12 +440,58 @@
     return true;
   }
 
+  // ---------- player capture (capture.js runs in the page's world) ----------
+  let captureRid = 0;
+  function askCapture(op, id) {
+    return new Promise((resolve) => {
+      const rid = ++captureRid;
+      const onMsg = (e) => {
+        if (e.source !== window || !e.data || e.data.__dvo !== 'res' || e.data.rid !== rid) return;
+        window.removeEventListener('message', onMsg);
+        resolve(e.data);
+      };
+      window.addEventListener('message', onMsg);
+      window.postMessage({ __dvo: 'req', op, id, rid }, '*');
+      setTimeout(() => { window.removeEventListener('message', onMsg); resolve(null); }, 800);
+    });
+  }
+
+  async function captureSave({ jobId, groupId, filename }) {
+    const report = (p) => chrome.runtime.sendMessage({ type: 'progress', jobId, ...p }).catch(() => {});
+    if (!window.webmRemux || !window.fmp4Merge) {
+      const r = await chrome.runtime.sendMessage({ type: 'injectPreview' });
+      if (!r || !r.ok) throw new Error('could not load the assembler');
+    }
+    report({ state: 'running', percent: 25 });
+    const res = await askCapture('take', groupId);
+    if (!res || res.error) throw new Error((res && res.error) || 'capture unavailable');
+    const streams = (res.streams || []).map((s) => ({ mime: s.mime, bytes: new Uint8Array(s.buffer) }));
+    if (!streams.length) throw new Error('nothing captured yet: play the video first');
+    report({ state: 'remuxing', percent: 70 });
+    await new Promise((r) => setTimeout(r, 30));
+    const webm = streams.some((s) => /webm/i.test(s.mime));
+    const blob = webm ? window.webmRemux(streams.map((s) => s.bytes)) : window.fmp4Merge(streams.map((s) => [s.bytes]));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${filename}.${webm ? 'webm' : 'mp4'}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 120000);
+    report({ state: 'done', percent: 100, bytes: blob.size });
+    return { ok: true };
+  }
+
   let sniffTimer = 0;
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'sniffed') { // a new media request: recount after things settle
       clearTimeout(sniffTimer);
       sniffTimer = setTimeout(() => detect().catch(() => {}), 700);
       return false;
+    }
+    if (msg.type === 'captureSave') {
+      captureSave(msg).then(sendResponse).catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true;
     }
     if (msg.type === 'pageDownload') {
       pageDownload(msg).then((ok) => sendResponse({ ok })).catch(() => sendResponse({ ok: false }));

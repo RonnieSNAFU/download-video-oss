@@ -39,9 +39,9 @@ function renderList() {
     const t = document.createElement('div'); t.className = 't'; t.textContent = c.title;
     const m = document.createElement('div'); m.className = 'm';
     const tag = document.createElement('span');
-    const kind = c.site === 'manual' ? 'manual' : c.site === 'picked' ? 'picked' : c.site === 'link' ? 'link' : c.source.type;
+    const kind = c.site === 'manual' ? 'manual' : c.site === 'picked' ? 'picked' : c.site === 'link' ? 'link' : c.site === 'captured' ? 'captured' : c.source.type;
     tag.className = `tag ${kind}`;
-    tag.textContent = c.source.type === 'merge' ? 'VIDEO+AUDIO' : kind.toUpperCase();
+    tag.textContent = c.source.type === 'merge' ? 'VIDEO+AUDIO' : c.source.type === 'captured' ? 'FROM PLAYER' : kind.toUpperCase();
     m.appendChild(tag);
     m.appendChild(document.createTextNode(
       [c.duration ? fmtDur(c.duration) : null, c.site === 'network' ? hostOf(c.source.url) : c.site, c.id].filter(Boolean).join(' · ')));
@@ -65,7 +65,8 @@ function renderList() {
     clipBtn.className = 'clipbtn';
     clipBtn.textContent = '✂ Clip';
     clipBtn.title = 'Open the clip editor on the page: trim, preview, convert (MP4, WebM, GIF, MP3)';
-    clipBtn.disabled = c.source.type === 'dash';
+    clipBtn.disabled = c.source.type === 'dash' || c.source.type === 'captured';
+    if (c.source.type === 'captured') clipBtn.title = 'Captured video is held in the page, so the clip editor cannot reach it. Download it, then clip the file.';
     clipBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
