@@ -351,3 +351,20 @@ function handle(msg, tabId, sendResponse) {
   }
   return false;
 }
+
+// After an install or an update, put the content scripts into pages that are already open, so the
+// extension works straight away instead of only in tabs opened afterwards.
+chrome.runtime.onInstalled.addListener(async () => {
+  const scripts = chrome.runtime.getManifest().content_scripts || [];
+  let tabs = [];
+  try { tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }); } catch {}
+  for (const tab of tabs) {
+    for (const cs of scripts) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id }, files: cs.js, world: cs.world || 'ISOLATED', injectImmediately: true,
+        });
+      } catch {} // pages the browser will not let us touch
+    }
+  }
+});
