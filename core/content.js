@@ -269,6 +269,25 @@
       seen.add(m.url);
       net.push({ id: m.id, ...meta, pageUrl: location.href, site: 'manual', thumbnail: abs(meta.thumbnail), source: { type: m.kind, url: m.url }, candidateId: `manual:${m.url}`, label: 'manual' });
     }
+    // One video usually arrives as several sources at once: a master playlist, a file per quality,
+    // and whatever the player buffered. They all run the same length, so collapse by duration and
+    // keep the most useful one. Entries with no known duration are left alone.
+    const useful = (c) => ({ hls: 0, merge: 1, file: 2, captured: 3 }[c.source.type] ?? 4);
+    const best = new Map();
+    for (const c of net) {
+      if (dropped.has(c) || !c.duration) continue;
+      const key = `d${Math.round(c.duration)}`;
+      const prev = best.get(key);
+      if (!prev) { best.set(key, c); continue; }
+      const loser = useful(c) < useful(prev) ? prev : c;
+      const winner = loser === prev ? c : prev;
+      // keep the better source's thumbnail if it has none of its own
+      if (!winner.thumbnail && loser.thumbnail) winner.thumbnail = loser.thumbnail;
+      dropped.add(loser);
+      best.set(key, winner);
+    }
+    for (let i = net.length - 1; i >= 0; i--) if (dropped.has(net[i])) net.splice(i, 1);
+
     net.sort((a, b) => rank[a.source.type] - rank[b.source.type]);
     const ids = new Set();
     const next = [...list, ...net].filter((c) => !ids.has(c.id) && ids.add(c.id));
