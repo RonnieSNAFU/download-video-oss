@@ -69,6 +69,7 @@ function remember(tabId, url, ct, size) {
   list.push({ url: bare, kind, ct, size: size || 0, time: Date.now(), ...extra });
   if (list.length > MAX_PER_TAB) list.shift();
   updateBadge(tabId);
+  chrome.tabs.sendMessage(tabId, { type: 'sniffed' }).catch(() => {}); // ask the page to re-count
 }
 
 chrome.webRequest.onHeadersReceived.addListener(
@@ -111,7 +112,13 @@ function updateBadge(tabId) {
     const recent = tabJobs(tabId);
     if (recent.some((j) => j.state === 'error')) text = '!';
     else if (recent.length && recent.every((j) => j.state === 'done')) text = 'OK';
-    else { const n = (sniffed.get(tabId) || []).length + (pageDetected.get(tabId) ? 1 : 0); text = n ? String(n) : ''; }
+    else {
+      // what the popup will list, not how many media requests were seen: one video can be fetched
+      // as a master playlist plus several rendition files
+      const reported = pageDetected.get(tabId);
+      const n = reported === undefined ? (sniffed.get(tabId) || []).length : reported;
+      text = n ? String(n) : '';
+    }
   }
   chrome.action.setBadgeBackgroundColor({ tabId, color: '#e11d74' }).catch(() => {});
   chrome.action.setBadgeText({ tabId, text }).catch(() => {});
@@ -272,7 +279,7 @@ function handle(msg, tabId, sendResponse) {
       sendResponse(rejected.get(tabId) || []);
       break;
     case 'detected':
-      pageDetected.set(tabId, !!msg.video);
+      pageDetected.set(tabId, msg.count != null ? msg.count : (msg.video ? 1 : 0));
       updateBadge(tabId);
       break;
     case 'injectPreview': // clip editor needs mux.js + mp4fix + preview loader in the page (isolated world)

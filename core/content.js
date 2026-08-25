@@ -247,7 +247,7 @@
 
     const changed = JSON.stringify(next.map((c) => c.candidateId)) !== JSON.stringify(candidates.map((c) => c.candidateId));
     candidates = next;
-    if (changed) chrome.runtime.sendMessage({ type: 'detected', video: candidates.length ? candidates[0] : null }).catch(() => {});
+    if (changed) chrome.runtime.sendMessage({ type: 'detected', video: candidates.length ? candidates[0] : null, count: candidates.length }).catch(() => {});
   }
 
   function highlightCandidate(candidateId) {
@@ -389,7 +389,13 @@
     };
   }
 
+  let sniffTimer = 0;
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg.type === 'sniffed') { // a new media request: recount after things settle
+      clearTimeout(sniffTimer);
+      sniffTimer = setTimeout(() => detect().catch(() => {}), 700);
+      return false;
+    }
     if (msg.type === 'pick') { startPick(); sendResponse({ ok: true }); return false; }
     if (msg.type === 'addUrl') {
       const r = addManualUrl(msg.url);
