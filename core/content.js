@@ -185,6 +185,14 @@
       if (!masters.length) continue; // every name looks like a rendition: no way to tell, keep them
       for (const c of group) if (!masters.includes(c)) dropped.add(c);
     }
+    // Renditions of a byte-range stream are plain media files (CMAF_480.mp4, ...), so they arrive as
+    // files rather than playlists. When a master playlist covers the same directory they are pieces
+    // of it, usually video-only or audio-only, not separate videos.
+    const masterDirs = new Set(net.filter((c) => c.source.type === 'hls' && !dropped.has(c)).map((c) => dirOf(c.source.url)));
+    for (const c of net) {
+      if (c.source.type === 'hls' || !masterDirs.has(dirOf(c.source.url))) continue;
+      if (RENDITION.test(fileOf(c.source.url))) dropped.add(c);
+    }
     for (let i = net.length - 1; i >= 0; i--) if (dropped.has(net[i])) net.splice(i, 1);
 
     // a DASH manifest next to an HLS playlist for the same asset is a duplicate we can't download anyway

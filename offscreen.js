@@ -10,12 +10,12 @@
 
   const report = (jobId, patch) => chrome.runtime.sendMessage({ type: 'progress', jobId, ...patch }).catch(() => {});
 
-  async function fetchBuf(url, referer, tries = 3) {
+  async function fetchBuf(url, referer, range = null, tries = 3) {
     for (let i = 0; ; i++) {
       try {
-        const r = await fetch(url, { credentials: 'include', referrer: referer, referrerPolicy: 'unsafe-url' });
+        const r = await fetch(url, { credentials: 'include', referrer: referer, referrerPolicy: 'unsafe-url', headers: range ? rangeHeader(range) : undefined });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return await r.arrayBuffer();
+        return applyRange(await r.arrayBuffer(), r.status, range);
       } catch (e) {
         if (i >= tries - 1) throw e;
         await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
@@ -30,18 +30,43 @@
     return out;
   }
 
+  // "#EXT-X-BYTERANGE:<length>[@<offset>]": the segment is a slice of the resource named on the next
+  // line. Without this, a playlist whose segments all point at one file downloads that whole file
+  // once per segment.
+  function parseByteRange(v, prevEnd) {
+    if (!v) return null;
+    const m = /^\s*(\d+)(?:@(\d+))?/.exec(String(v).replace(/"/g, ''));
+    if (!m) return null;
+    return { offset: m[2] !== undefined ? +m[2] : (prevEnd || 0), length: +m[1] };
+  }
+  const rangeHeader = (r) => ({ Range: `bytes=${r.offset}-${r.offset + r.length - 1}` });
+  // a server may ignore Range and send the whole resource: cut the slice ourselves in that case
+  const applyRange = (buf, status, r) => (r && status === 200 && buf.byteLength > r.length
+    ? buf.slice(r.offset, r.offset + r.length) : buf);
+
   function parseMediaPlaylist(text, baseUrl) {
     const segs = [];
-    let map = null, key = null, seq = 0;
+    let map = null, mapRange = null, key = null, seq = 0, pendingRange = null;
+    const ends = new Map(); // resource -> where the previous slice of it ended
     for (const line of text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
       if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) seq = +line.split(':')[1] || 0;
-      else if (line.startsWith('#EXT-X-MAP:')) map = new URL(parseAttrs(line.slice(11)).URI, baseUrl).href;
+      else if (line.startsWith('#EXT-X-MAP:')) {
+        const a = parseAttrs(line.slice(11));
+        map = new URL(a.URI, baseUrl).href;
+        mapRange = parseByteRange(a.BYTERANGE, 0);
+      } else if (line.startsWith('#EXT-X-BYTERANGE:')) pendingRange = line.slice(17).trim();
       else if (line.startsWith('#EXT-X-KEY:')) {
         const a = parseAttrs(line.slice(11));
         if (a.METHOD === 'NONE') key = null;
         else if (a.METHOD === 'AES-128') key = { uri: new URL(a.URI, baseUrl).href, iv: a.IV || null };
         else throw new Error(`unsupported encryption: ${a.METHOD} (DRM)`);
-      } else if (!line.startsWith('#')) segs.push({ url: new URL(line, baseUrl).href, key, seq: seq++, map });
+      } else if (!line.startsWith('#')) {
+        const url = new URL(line, baseUrl).href;
+        const range = parseByteRange(pendingRange, ends.get(url) || 0);
+        if (range) ends.set(url, range.offset + range.length);
+        pendingRange = null;
+        segs.push({ url, range, key, seq: seq++, map, mapRange, mapKey: map ? `${map}|${mapRange ? mapRange.offset + '-' + mapRange.length : ''}` : null });
+      }
     }
     return segs;
   }
@@ -105,7 +130,7 @@
       while (next < segs.length) {
         if (state.cancelled) throw new Error('cancelled');
         const i = next++;
-        bufs[i] = await decryptSeg(await fetchBuf(segs[i].url, referer), segs[i], referer);
+        bufs[i] = await decryptSeg(await fetchBuf(segs[i].url, referer, segs[i].range), segs[i], referer);
         done++;
         progress(done, segs.length);
       }
@@ -116,7 +141,7 @@
     const parts = [];
     let lastMap = null;
     for (let i = 0; i < segs.length; i++) {
-      if (segs[i].map && segs[i].map !== lastMap) { parts.push(new Uint8Array(await fetchBuf(segs[i].map, referer))); lastMap = segs[i].map; }
+      if (segs[i].map && segs[i].mapKey !== lastMap) { parts.push(new Uint8Array(await fetchBuf(segs[i].map, referer, segs[i].mapRange))); lastMap = segs[i].mapKey; }
       parts.push(new Uint8Array(bufs[i]));
     }
     return { parts, isFmp4 };
