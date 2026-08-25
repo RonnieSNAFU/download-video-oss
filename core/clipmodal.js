@@ -13,7 +13,7 @@
   const QF = { low: 0.55, medium: 1, high: 1.8 };
   function estimateBytes(c, st, height) {
     const dur = Math.max(0, st.end - st.start);
-    if (st.quality === 'target' && /^(mp4|webm)$/.test(st.format)) return st.targetBytes || 4 * 1048576;
+    if (st.quality === 'target' && /^(mp4|webm|mp3|m4a)$/.test(st.format)) return st.targetBytes || 4 * 1048576;
     const audio = st.noAudio ? 0 : 96e3;
     const h = height || (() => { const m = /(\d{3,4})p/.exec(`${c.title} ${c.id}`); return m ? +m[1] : 720; })();
     const near = (tbl) => tbl[[2160, 1440, 1080, 720, 480, 360, 240].find((k) => h >= k) || 240];
@@ -32,7 +32,9 @@
         break;
       }
       case 'gif': bps = { low: 2.5e6, medium: 6e6, high: 12e6, target: 4.5e6 }[st.quality]; break;
-      case 'mp3': bps = { low: 128e3, medium: 192e3, high: 320e3, target: 160e3 }[st.quality]; break;
+      case 'mp3': bps = { low: 128e3, medium: 192e3, high: 320e3 }[st.quality] || 160e3; break;
+      case 'm4a': bps = st.quality === 'target' ? 160e3 : (c.size && c.duration ? Math.min(320e3, (c.size * 8) / c.duration * 0.12) : { low: 128e3, medium: 192e3, high: 256e3 }[st.quality] || 192e3); break;
+      case 'wav': bps = 48000 * 16 * 2; break;
       default: bps = srcBps;
     }
     return (bps * dur) / 8;
@@ -286,7 +288,7 @@
     const row = mk('div', 'row');
     const sIn = mk('input', null, { type: 'text' }), eIn = mk('input', null, { type: 'text' });
     const fmtSel = mk('select');
-    for (const [v, t] of [['mp4-copy', 'MP4 fast (keyframe cut, original quality)'], ['mp4', 'MP4 exact (H.264 re-encode)'], ['webm', 'WebM exact'], ['gif', 'GIF (no audio)'], ['mp3', 'MP3 (audio only)']]) fmtSel.appendChild(mk('option', null, { value: v, textContent: t }));
+    for (const [v, t] of [['mp4-copy', 'MP4 fast (keyframe cut, original quality)'], ['mp4', 'MP4 exact (H.264 re-encode)'], ['webm', 'WebM exact'], ['gif', 'GIF (no audio)'], ['m4a', 'M4A audio (no re-encode when possible)'], ['mp3', 'MP3 audio'], ['wav', 'WAV audio (uncompressed)']]) fmtSel.appendChild(mk('option', null, { value: v, textContent: t }));
     const codecSel = mk('select');
     codecSel.title = 'WebM video codec. VP9 and AV1 use the browser\'s own encoder (usually the GPU) and make much smaller files than VP8 at the same quality.';
     const codecOpts = { vp9: 'VP9 (best size/quality)', av1: 'AV1 (smallest, needs a recent GPU/Chrome)', vp8: 'VP8 (compatible, bigger)' };
@@ -385,7 +387,8 @@
     full.addEventListener('click', () => {
       const base = { ...c, filenameBase: safe(nameIn.value) };
       let video2;
-      if (normalSource || (st.format === 'mp4-copy' && !st.noAudio && (c.source.type === 'hls' || c.source.type === 'merge'))) video2 = base; // plain download
+      const keepsSource = st.format === 'mp4-copy' && !st.noAudio;
+      if (keepsSource && (normalSource || c.source.type === 'hls' || c.source.type === 'merge')) video2 = base; // plain download, no re-encode
       else video2 = { ...base, clip: { start: 0, end: duration || 1e7, format: st.format, codec: st.format === 'webm' ? st.codec : null, quality: st.quality, targetBytes: st.targetBytes, noAudio: st.noAudio } };
       chrome.runtime.sendMessage({ type: 'download', videos: [video2] }).then(() => {
         status.className = 'status ok';
@@ -417,8 +420,8 @@
       const isWebm = st.format === 'webm';
       codecSel.style.display = isWebm ? '' : 'none'; codecLbl.style.display = isWebm ? '' : 'none';
       const mb = parseFloat(tgtIn.value); st.targetBytes = (mb > 0 ? mb : 4) * 1048576;
-      qSel.disabled = st.format === 'mp4-copy';
-      const targetable = st.quality === 'target' && /^(mp4|webm)$/.test(st.format);
+      qSel.disabled = st.format === 'mp4-copy' || st.format === 'wav' || (st.format === 'm4a' && st.quality !== 'target');
+      const targetable = st.quality === 'target' && /^(mp4|webm|mp3|m4a)$/.test(st.format);
       tgt.classList.toggle('on', targetable);
       naChk.style.display = /^(mp4-copy|mp4|webm)$/.test(st.format) ? '' : 'none';
       const len = st.end - st.start;
@@ -426,14 +429,16 @@
       const bytes = estimateBytes(c, st, h);
       est.innerHTML = `clip ${fmtT(len)} · <b>${targetable ? '≤' : '≈'} ${fmtBytes(bytes)}</b>`;
       if (targetable) {
-        const kbps = Math.round((bytes * 8 * 0.96) / Math.max(0.1, len) / 1000) - (st.noAudio ? 0 : 96);
+        const audioOnly = /^(mp3|m4a|wav)$/.test(st.format);
+        const kbps = Math.round((bytes * 8 * 0.96) / Math.max(0.1, len) / 1000) - (audioOnly || st.noAudio ? 0 : 96);
         est.innerHTML += ` <span style="opacity:.6">(${Math.max(40, kbps)} kbps)</span>`;
         est.title = 'Two-pass encode aimed at this size; the result lands a little under it. A very low kbps means visible quality loss: shorten the clip or raise the limit.';
       } else est.title = st.format === 'mp4-copy' ? 'From the source bitrate; fast cuts start at the previous keyframe, so the clip may begin slightly early' : 'Estimate from typical bitrates for this format and quality. The exact size is shown in the popup when done.';
       go.textContent = `✂ Download clip (${fmtT(len)}, ${fmtName()})`;
-      full.textContent = normalSource ? `⬇ Download source (.${srcExt})` : `⬇ Download full as ${fmtName()}`;
-      full.title = normalSource ? 'Save the original file untouched' : 'Convert the whole video to the selected format and quality. Ignores the clip range.';
-      extLbl.textContent = `${fmtT(st.start)}-${fmtT(st.end)} .${{ 'mp4-copy': 'mp4', mp4: 'mp4', webm: 'webm', gif: 'gif', mp3: 'mp3' }[st.format]}`;
+      const plain = st.format === 'mp4-copy' && !st.noAudio && normalSource;
+      full.textContent = plain ? `⬇ Download source (.${srcExt})` : `⬇ Download full as ${fmtName()}`;
+      full.title = plain ? 'Save the original file untouched' : 'Convert the whole video to the selected format and quality. Ignores the clip range.';
+      extLbl.textContent = `${fmtT(st.start)}-${fmtT(st.end)} .${{ 'mp4-copy': 'mp4', mp4: 'mp4', webm: 'webm', gif: 'gif', mp3: 'mp3', m4a: 'm4a', wav: 'wav' }[st.format]}`;
       layout();
     }
 

@@ -26,7 +26,8 @@ async function get() {
 // NOTE: libopus and libvpx-vp9 both crash this wasm build (memory faults), so WebM = VP8 + Vorbis.
 // clip.quality: 'low' | 'medium' | 'high' | 'target'   (target => clip.targetBytes, 2-pass ABR)
 // clip.noAudio: true drops the audio track (some sites reject WebMs with audio)
-const EXT = { 'mp4-copy': 'mp4', mp4: 'mp4', webm: 'webm', gif: 'gif', mp3: 'mp3' };
+const EXT = { 'mp4-copy': 'mp4', mp4: 'mp4', webm: 'webm', gif: 'gif', mp3: 'mp3', m4a: 'm4a', wav: 'wav' };
+const AUDIO_ONLY = /^(mp3|m4a|wav)$/;
 const AUDIO_KBPS = { mp4: 96, webm: 96 };
 
 // returns an array of ffmpeg arg lists (1 or 2 passes)
@@ -35,6 +36,12 @@ function argsFor(clip, inName, outName) {
   const dur = Math.max(0.1, clip.end - clip.start);
   const head = ['-hide_banner', '-ss', String(clip.start), '-i', inName, '-t', String(dur)];
   const audioOff = !!clip.noAudio;
+  // bitrate for an audio-only output: a tier, or whatever fits the requested file size
+  const audioKbps = (tiers, min, max) => {
+    if (q !== 'target') return `${tiers[q] || tiers.medium}k`;
+    const kbps = ((clip.targetBytes || 4 * 1048576) * 8 * 0.98) / dur / 1000;
+    return `${Math.max(min, Math.min(max, Math.round(kbps)))}k`;
+  };
   const targetVideoKbps = () => {
     const total = Math.max(16, ((clip.targetBytes || 4 * 1048576) * 8 * 0.96) / dur / 1000); // 4% container/overhead margin
     return Math.max(40, Math.round(total - (audioOff ? 0 : AUDIO_KBPS[clip.format] || 96)));
@@ -74,7 +81,14 @@ function argsFor(clip, inName, outName) {
       return [[...head, '-vf', `${vf},split[a][b];[a]palettegen[p];[b][p]paletteuse`, '-an', outName]];
     }
     case 'mp3':
-      return [[...head, '-vn', '-c:a', 'libmp3lame', '-b:a', { low: '128k', medium: '192k', high: '320k', target: '160k' }[q], outName]];
+      return [[...head, '-vn', '-c:a', 'libmp3lame', '-b:a', audioKbps({ low: 128, medium: 192, high: 320 }, 32, 320), outName]];
+    case 'm4a':
+      // the source audio is usually already AAC, so copy it (instant, lossless); run() retries with
+      // an encode if the copy is rejected
+      if (!clip.forceEncode && clip.quality !== 'target') return [[...head, '-vn', '-c:a', 'copy', '-movflags', '+faststart', outName]];
+      return [[...head, '-vn', '-c:a', 'aac', '-b:a', audioKbps({ low: 128, medium: 192, high: 256 }, 32, 320), '-movflags', '+faststart', outName]];
+    case 'wav':
+      return [[...head, '-vn', '-c:a', 'pcm_s16le', '-ar', '48000', outName]];
     default:
       throw new Error(`unknown clip format ${clip.format}`);
   }
@@ -132,14 +146,23 @@ async function run(bytes, inputName, clip, onProgress) {
     ff.on('log', onLog);
     try {
       await ff.writeFile(inName, bytes);
-      const passes = argsFor(clip, inName, outName);
-      for (let i = 0; i < passes.length; i++) {
-        passNo = i; passCount = passes.length;
-        const ret = await ff.exec(passes[i]);
-        if (ret !== 0) {
-          const why = (logTail.split('\n').filter((l) => /error|invalid|fail|not supported|unsupported/i.test(l)).pop() || `ffmpeg exit ${ret}`).trim();
-          throw new Error(why);
+      const runPasses = async (cfg) => {
+        const passes = argsFor(cfg, inName, outName);
+        for (let i = 0; i < passes.length; i++) {
+          passNo = i; passCount = passes.length;
+          const ret = await ff.exec(passes[i]);
+          if (ret !== 0) {
+            const why = (logTail.split('\n').filter((l) => /error|invalid|fail|not supported|unsupported/i.test(l)).pop() || `ffmpeg exit ${ret}`).trim();
+            throw new Error(why);
+          }
         }
+      };
+      try {
+        await runPasses(clip);
+      } catch (e) {
+        if (clip.format !== 'm4a' || clip.forceEncode) throw e;
+        try { await ff.deleteFile(outName); } catch {}
+        await runPasses({ ...clip, forceEncode: true }); // source audio was not AAC
       }
       const out = await ff.readFile(outName);
       return { bytes: out, ext: EXT[clip.format] };

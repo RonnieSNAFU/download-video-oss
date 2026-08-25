@@ -217,7 +217,8 @@
           const inputName = source.type === 'file' ? (/\.(\w{2,4})(\?|#|$)/.exec(source.url) || [, 'mp4'])[1] : 'mp4';
           report(jobId, { state: 'encoding', percent: 0 });
           const res = await engine.run(bytes, `in.${inputName}`, clip, (p) => report(jobId, { state: 'encoding', percent: p.percent || 0, note: p.phase === 'loading' ? 'loading encoder…' : p.phase === 'decoding' ? (p.note || 'preparing…') : (p.note ? `Encoding ${p.note} · ${p.percent || 0}%` : null) }));
-          blob = new Blob([res.bytes], { type: res.ext === 'mp3' ? 'audio/mpeg' : res.ext === 'gif' ? 'image/gif' : `video/${res.ext}` });
+          const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', gif: 'image/gif' };
+          blob = new Blob([res.bytes], { type: MIME[res.ext] || `video/${res.ext}` });
           outName = filename.replace(/\.\w+$/, '') + `.${res.ext}`;
         } else {
           blob = source.type === 'merge' ? await downloadMerge(jobId, source, referer) : await downloadHls(jobId, source.url, referer);

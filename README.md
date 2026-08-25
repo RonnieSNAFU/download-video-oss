@@ -64,9 +64,12 @@ Formats and codecs:
 - WebM exact with a codec choice. VP9 (default) and AV1 are encoded by Chrome's WebCodecs
   `VideoEncoder` (usually hardware) with Opus audio and muxed by `webm.js`; options are greyed
   out when the browser or GPU lacks the encoder. VP8 uses ffmpeg.wasm libvpx with Vorbis.
-- GIF (no audio) and MP3 (audio only).
+- GIF (no audio).
+- Audio only: M4A (copies the source audio track when it is already AAC, so it is instant and
+  lossless, otherwise re-encodes), MP3, or uncompressed WAV.
 
-Quality: Low, Medium, High, or Target file size (MB, with 4/6/8/16 presets). The encoder is driven
+Quality: Low, Medium, High, or Target file size (MB, with 4/6/8/16 presets), for video and
+for MP3 and M4A audio. The encoder is driven
 to land just under the limit: two-pass for VP8 and H.264, constant bitrate for VP9 and AV1. The
 panel shows the clip length, the resulting kbps and an estimated or maximum size; the exact size
 is shown in the popup when the job finishes. "No audio" drops the audio track for sites that only accept silent WebMs.
