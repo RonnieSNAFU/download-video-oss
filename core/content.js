@@ -165,6 +165,28 @@
         candidateId: `net:${s.url}`, label: labelFor(s.url, s.kind),
       });
     }
+    // One video, several playlists: a player fetches the master and then each rendition it decides to
+    // play (video 480, audio 128, ...). They live in the same directory and all describe the same
+    // video, so keep the master and drop the renditions.
+    const RENDITION = /(_|-)(\d{2,4}|audio|video|a\d+|v\d+)(_|-|\.|$)|\d{3,4}p|\d{3,4}x\d{3,4}/i;
+    const dirOf = (u) => { try { const x = new URL(u); return x.origin + x.pathname.replace(/[^/]*$/, ''); } catch { return u; } };
+    const fileOf = (u) => { try { return new URL(u).pathname.split('/').pop() || ''; } catch { return u; } };
+    const byDir = new Map();
+    for (const c of net) {
+      if (c.source.type !== 'hls') continue;
+      const k = dirOf(c.source.url);
+      if (!byDir.has(k)) byDir.set(k, []);
+      byDir.get(k).push(c);
+    }
+    const dropped = new Set();
+    for (const group of byDir.values()) {
+      if (group.length < 2) continue;
+      const masters = group.filter((c) => !RENDITION.test(fileOf(c.source.url)));
+      if (!masters.length) continue; // every name looks like a rendition: no way to tell, keep them
+      for (const c of group) if (!masters.includes(c)) dropped.add(c);
+    }
+    for (let i = net.length - 1; i >= 0; i--) if (dropped.has(net[i])) net.splice(i, 1);
+
     // a DASH manifest next to an HLS playlist for the same asset is a duplicate we can't download anyway
     const assetKey = (u) => { try { const x = new URL(u); return x.origin + x.pathname.split('/').slice(0, 3).join('/'); } catch { return u; } };
     const hlsKeys = new Set(net.filter((c) => c.source.type === 'hls').map((c) => assetKey(c.source.url)));

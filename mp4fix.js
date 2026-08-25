@@ -35,10 +35,24 @@
     for (const p of payloads) { out.set(p, o); o += p.length; }
     return out;
   }
-  function u32s(...vals) {
+  // Takes an array, never a spread: sample tables run to tens of thousands of entries and
+  // f(...arr) overflows the call stack well before that.
+  function u32a(vals) {
     const out = new Uint8Array(vals.length * 4);
     const dv = new DataView(out.buffer);
-    vals.forEach((v, i) => dv.setUint32(i * 4, v >>> 0));
+    for (let i = 0; i < vals.length; i++) dv.setUint32(i * 4, vals[i] >>> 0);
+    return out;
+  }
+  const u32s = (...vals) => u32a(vals);
+  function boxOf(type, payloads) { // box() without the spread
+    let len = 8;
+    for (const p of payloads) len += p.length;
+    const out = new Uint8Array(len);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(0, len);
+    out.set(te.encode(type), 4);
+    let o = 8;
+    for (const p of payloads) { out.set(p, o); o += p.length; }
     return out;
   }
   function fullBox(type, version, flags, payload) {
@@ -93,56 +107,62 @@
   }
 
   // ---------- main ----------
-  // files: array of fMP4 byte streams (each = init moov + moof/mdat...), e.g. [videoOnly, audioOnly].
-  // All tracks are combined into one progressive MP4.
+  // files: array of fMP4 byte streams, each given as an array of parts (init segment + media
+  // segments), e.g. [videoOnly, audioOnly]. All tracks are combined into one progressive MP4.
+  //
+  // Memory: the parts are never concatenated and the mdat is never materialised. Each part is
+  // parsed where it lies, samples remember which part they came from, and the output is handed to
+  // Blob as a list of views. Peak cost is the downloaded bytes themselves, not a multiple of them.
   function fmp4Merge(files) {
     const inputs = files.map((parts) => {
-      const total = parts.reduce((n, p) => n + p.length, 0);
-      const u8 = new Uint8Array(total);
-      let w = 0;
-      for (const p of parts) { u8.set(p, w); w += p.length; }
-      const top = [...boxes(u8)];
-      const moov = top.find((b) => b.type === 'moov');
+      let moovPart = -1, moov = null;
+      for (let i = 0; i < parts.length && !moov; i++) {
+        for (const bx of boxes(parts[i])) if (bx.type === 'moov') { moov = bx; moovPart = i; break; }
+      }
       if (!moov) throw new Error('no moov');
-      return { u8, top, moov };
+      return { parts, moovU8: parts[moovPart], moov };
     });
     const first = inputs[0];
-    const u8 = first.u8; // for mvhd
-    const mvhd = child(first.u8, first.moov, 'mvhd');
-    const movieTimescale = u32(first.u8, mvhd.body + (first.u8[mvhd.body] === 0 ? 12 : 20));
+    const hdr = first.moovU8; // header boxes are read from the part holding the moov
+    const mvhd = child(hdr, first.moov, 'mvhd');
+    const movieTimescale = u32(hdr, mvhd.body + (hdr[mvhd.body] === 0 ? 12 : 20));
 
-    // per track (across all inputs): collect samples from every moof
-    const tracks = new Map(); // newId -> { u8, trak, samples[], chunks[], newId }
+    // per track (across all inputs): collect samples from every moof, in every part
+    const tracks = new Map(); // newId -> { moovU8, parts, trak, samples[], chunks[], newId }
     let nextId = 1;
     for (const inp of inputs) {
-      const local = new Map(); // original id -> track
-      for (const trak of children(inp.u8, inp.moov, 'trak')) {
-        const tkhd = child(inp.u8, trak, 'tkhd');
-        const id = u32(inp.u8, tkhd.body + (inp.u8[tkhd.body] === 0 ? 12 : 20));
-        const t = { u8: inp.u8, trak, samples: [], chunks: [], newId: nextId++ };
+      const local = new Map(); // original track id -> track
+      for (const trak of children(inp.moovU8, inp.moov, 'trak')) {
+        const tkhd = child(inp.moovU8, trak, 'tkhd');
+        const id = u32(inp.moovU8, tkhd.body + (inp.moovU8[tkhd.body] === 0 ? 12 : 20));
+        const t = { moovU8: inp.moovU8, parts: inp.parts, trak, samples: [], chunks: [], newId: nextId++ };
         local.set(id, t);
         tracks.set(t.newId, t);
       }
-      for (const moof of inp.top.filter((b) => b.type === 'moof')) {
-        for (const traf of children(inp.u8, moof, 'traf')) {
-          const tfhd = child(inp.u8, traf, 'tfhd');
-          const t = local.get(u32(inp.u8, tfhd.body + 4));
-          if (!t) continue;
-          for (const trun of children(inp.u8, traf, 'trun')) {
-            const s = parseTrun(inp.u8, tfhd, trun, moof.start);
-            if (!s.length) continue;
-            t.chunks.push({ first: t.samples.length, count: s.length });
-            t.samples.push(...s);
+      for (let p = 0; p < inp.parts.length; p++) {
+        const part = inp.parts[p];
+        for (const bx of boxes(part)) {
+          if (bx.type !== 'moof') continue;
+          for (const traf of children(part, bx, 'traf')) {
+            const tfhd = child(part, traf, 'tfhd');
+            const t = local.get(u32(part, tfhd.body + 4));
+            if (!t) continue;
+            for (const trun of children(part, traf, 'trun')) {
+              const list = parseTrun(part, tfhd, trun, bx.start);
+              if (!list.length) continue;
+              t.chunks.push({ first: t.samples.length, count: list.length });
+              for (const smp of list) { smp.part = p; t.samples.push(smp); } // no push(...list): stack
+            }
           }
         }
       }
     }
 
-    // interleave chunks in file order (by source offset) and build one mdat
+    // interleave chunks by media time so video and audio stay close together in the file
     const allChunks = [];
     for (const [id, t] of tracks) {
-      const mdhd = child(t.u8, child(t.u8, t.trak, 'mdia'), 'mdhd');
-      const ts = u32(t.u8, mdhd.body + (t.u8[mdhd.body] === 0 ? 12 : 20));
+      const mdhd = child(t.moovU8, child(t.moovU8, t.trak, 'mdia'), 'mdhd');
+      const ts = u32(t.moovU8, mdhd.body + (t.moovU8[mdhd.body] === 0 ? 12 : 20));
       let tick = 0;
       for (const c of t.chunks) {
         allChunks.push({ id, c, time: tick / ts });
@@ -151,16 +171,13 @@
     }
     allChunks.sort((a, b) => a.time - b.time || a.id - b.id);
     let mdatSize = 0;
-    for (const t of tracks.values()) for (const s of t.samples) mdatSize += s.size;
+    for (const t of tracks.values()) for (const smp of t.samples) mdatSize += smp.size;
 
     let movieDuration = 0;
-
-    // Assign chunk offsets now (moov size depends on sample tables, so build moov first with
-    // placeholder offsets, then rewrite stco once ftyp+moov size is known).
     const ftyp = box('ftyp', te.encode('isom'), u32s(0x200), te.encode('isomiso2avc1mp41'));
 
     function buildTrak(id, t, stcoOffsets) {
-      const { trak, samples, u8 } = t;
+      const { trak, samples, moovU8: u8 } = t;
       const tkhd = child(u8, trak, 'tkhd');
       const mdia = child(u8, trak, 'mdia');
       const mdhd = child(u8, mdia, 'mdhd');
@@ -169,85 +186,106 @@
       const stbl = child(u8, minf, 'stbl');
       const stsd = child(u8, stbl, 'stsd');
       const mediaTimescale = u32(u8, mdhd.body + (u8[mdhd.body] === 0 ? 12 : 20));
-      const durTicks = samples.reduce((n, s) => n + s.dur, 0);
+      let durTicks = 0;
+      for (const smp of samples) durTicks += smp.dur;
       movieDuration = Math.max(movieDuration, Math.round((durTicks / mediaTimescale) * movieTimescale));
 
       // stts (run-length durations)
       const stts = [];
-      for (const s of samples) {
-        if (stts.length && stts[stts.length - 1][1] === s.dur) stts[stts.length - 1][0]++;
-        else stts.push([1, s.dur]);
+      for (const smp of samples) {
+        if (stts.length && stts[stts.length - 2] !== undefined && stts[stts.length - 1] === smp.dur) stts[stts.length - 2]++;
+        else stts.push(1, smp.dur);
       }
-      // ctts
-      const hasCts = samples.some((s) => s.cts !== 0);
+      // ctts (composition offsets; parseTrun stores the offset itself in .cts)
+      let hasCts = false, negCts = false;
+      for (const smp of samples) { if (smp.cts !== 0) hasCts = true; if (smp.cts < 0) negCts = true; }
       const ctts = [];
-      if (hasCts) for (const s of samples) {
-        if (ctts.length && ctts[ctts.length - 1][1] === s.cts) ctts[ctts.length - 1][0]++;
-        else ctts.push([1, s.cts]);
+      if (hasCts) for (const smp of samples) {
+        if (ctts.length && ctts[ctts.length - 1] === smp.cts) ctts[ctts.length - 2]++;
+        else ctts.push(1, smp.cts);
       }
-      // stss
-      const syncs = samples.map((s, i) => (s.sync ? i + 1 : 0)).filter(Boolean);
+      // stss (keyframes)
+      const syncs = [];
+      for (let i = 0; i < samples.length; i++) if (samples[i].sync) syncs.push(i + 1);
       const allSync = syncs.length === samples.length;
-      // stsc
+      // stsc (samples per chunk)
       const stsc = [];
-      t.chunks.forEach((c, i) => {
-        if (stsc.length && stsc[stsc.length - 1][1] === c.count) return;
-        stsc.push([i + 1, c.count]);
-      });
+      for (let i = 0; i < t.chunks.length; i++) {
+        const c = t.chunks[i];
+        if (stsc.length && stsc[stsc.length - 2] === c.count) continue;
+        stsc.push(i + 1, c.count, 1);
+      }
+      // stsz (sizes)
+      const sizes = new Array(samples.length + 2);
+      sizes[0] = 0; sizes[1] = samples.length;
+      for (let i = 0; i < samples.length; i++) sizes[i + 2] = samples[i].size;
 
-      const stblBox = box('stbl',
+      const stblParts = [
         slice(u8, stsd),
-        fullBox('stts', 0, 0, u32s(stts.length, ...stts.flat())),
-        ...(hasCts ? [fullBox('ctts', 0, 0, u32s(ctts.length, ...ctts.flat()))] : []),
-        ...(allSync ? [] : [fullBox('stss', 0, 0, u32s(syncs.length, ...syncs))]),
-        fullBox('stsc', 0, 0, u32s(stsc.length, ...stsc.flatMap(([f, c]) => [f, c, 1]))),
-        fullBox('stsz', 0, 0, u32s(0, samples.length, ...samples.map((s) => s.size))),
-        fullBox('stco', 0, 0, u32s(stcoOffsets.length, ...stcoOffsets)),
+        fullBox('stts', 0, 0, u32a([stts.length / 2].concat(stts))),
+      ];
+      if (hasCts) stblParts.push(fullBox('ctts', negCts ? 1 : 0, 0, u32a([ctts.length / 2].concat(ctts))));
+      if (!allSync) stblParts.push(fullBox('stss', 0, 0, u32a([syncs.length].concat(syncs))));
+      stblParts.push(
+        fullBox('stsc', 0, 0, u32a([stsc.length / 3].concat(stsc))),
+        fullBox('stsz', 0, 0, u32a(sizes)),
+        fullBox('stco', 0, 0, u32a([stcoOffsets.length].concat(stcoOffsets))),
       );
-      const minfBox = box('minf',
-        ...[...boxes(u8, minf.body, minf.end)].filter((b) => b.type !== 'stbl').map((b) => slice(u8, b)),
-        stblBox,
-      );
-      const mdiaBox = box('mdia', patchDuration(u8, mdhd, 'mdhd', durTicks), slice(u8, hdlr), minfBox);
+      const stblBox = boxOf('stbl', stblParts);
+
+      const minfParts = [];
+      for (const bx of boxes(u8, minf.body, minf.end)) if (bx.type !== 'stbl') minfParts.push(slice(u8, bx));
+      minfParts.push(stblBox);
+      const mdiaBox = box('mdia', patchDuration(u8, mdhd, 'mdhd', durTicks), slice(u8, hdlr), boxOf('minf', minfParts));
       const tkhdBox = patchDuration(u8, tkhd, 'tkhd', Math.round((durTicks / mediaTimescale) * movieTimescale));
       new DataView(tkhdBox.buffer).setUint32(tkhdBox[8] === 0 ? 20 : 28, t.newId); // track_ID
       return box('trak', tkhdBox, mdiaBox);
     }
 
     function buildMoov(offsetsByTrack) {
-      const traks = [];
-      for (const [id, t] of tracks) traks.push(buildTrak(id, t, offsetsByTrack.get(id) || []));
-      const mvhdBox = patchDuration(u8, mvhd, 'mvhd', movieDuration);
+      const mvhdBox = patchDuration(hdr, mvhd, 'mvhd', movieDuration);
       new DataView(mvhdBox.buffer).setUint32(mvhdBox.length - 4, nextId); // next_track_ID
-      return box('moov', mvhdBox, ...traks);
+      const parts = [mvhdBox];
+      for (const [id, t] of tracks) parts.push(buildTrak(id, t, offsetsByTrack.get(id) || []));
+      return boxOf('moov', parts);
     }
 
-    // pass 1: placeholder offsets to learn moov size
+    // The moov carries chunk offsets, and its own size shifts them, so build it twice: once with
+    // placeholders to learn the size, then again with the real offsets.
     const placeholder = new Map();
     for (const [id, t] of tracks) placeholder.set(id, t.chunks.map(() => 0));
     const moovSize = buildMoov(placeholder).length;
-    const mdatStart = ftyp.length + moovSize + 8;
+    const large = mdatSize + 8 > 0xfffffff0;
+    const mdatHeaderSize = large ? 16 : 8;
+    const mdatStart = ftyp.length + moovSize + mdatHeaderSize;
 
-    // pass 2: real offsets
+    // media data: views into the parts we already hold, in chunk order. Nothing is copied here.
     const offsets = new Map();
     for (const id of tracks.keys()) offsets.set(id, []);
+    const mdatViews = [];
     let pos = mdatStart;
-    const mdat = new Uint8Array(mdatSize);
-    let mw = 0;
     for (const { id, c } of allChunks) {
       offsets.get(id).push(pos);
       const t = tracks.get(id);
       for (let i = c.first; i < c.first + c.count; i++) {
-        const s = t.samples[i];
-        mdat.set(t.u8.subarray(s.offset, s.offset + s.size), mw);
-        mw += s.size; pos += s.size;
+        const smp = t.samples[i];
+        mdatViews.push(t.parts[smp.part].subarray(smp.offset, smp.offset + smp.size));
+        pos += smp.size;
       }
     }
     const moovBox = buildMoov(offsets);
     if (moovBox.length !== moovSize) throw new Error('moov size mismatch');
-    return new Blob([ftyp, moovBox, box('mdat', mdat)], { type: 'video/mp4' });
-  }
 
+    const mdatHeader = new Uint8Array(mdatHeaderSize);
+    const mh = new DataView(mdatHeader.buffer);
+    if (large) {
+      mh.setUint32(0, 1); mdatHeader.set(te.encode('mdat'), 4);
+      mh.setUint32(8, Math.floor((mdatSize + 16) / 4294967296)); mh.setUint32(12, (mdatSize + 16) >>> 0);
+    } else {
+      mh.setUint32(0, mdatSize + 8); mdatHeader.set(te.encode('mdat'), 4);
+    }
+    return new Blob([ftyp, moovBox, mdatHeader].concat(mdatViews), { type: 'video/mp4' });
+  }
 
   // ---------- progressive MP4 reader (for WebCodecs) ----------
   // Returns [{ kind:'video'|'audio', codec, description (Uint8Array|null), timescale, width, height,
