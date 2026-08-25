@@ -263,7 +263,9 @@ async function runJob(job) {
       throw new Error(`${type.toUpperCase()} streams are not supported yet.`);
     }
   } catch (e) {
-    setJob(jobId, { state: 'error', error: e.message });
+    // a stream the site only serves to its own player: say so instead of showing a bare status code
+    const locked = /403|FORBIDDEN/i.test(e.message || '') && SESSION_BOUND.test(hostOf((video.source && video.source.url) || ''));
+    setJob(jobId, { state: 'error', error: locked ? 'This site only serves this stream to its own player (403)' : e.message });
   }
 }
 
