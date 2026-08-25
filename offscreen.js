@@ -246,7 +246,12 @@
           blob = new Blob([res.bytes], { type: MIME[res.ext] || `video/${res.ext}` });
           outName = filename.replace(/\.\w+$/, '') + `.${res.ext}`;
         } else {
-          blob = source.type === 'merge' ? await downloadMerge(jobId, source, referer) : await downloadHls(jobId, source.url, referer);
+          if (source.type === 'merge') blob = await downloadMerge(jobId, source, referer);
+          else if (source.type === 'file') {
+            const parts = await fetchChunked(source.url, referer, source.size || 0,
+              (d, t) => report(jobId, { state: 'running', done: d, total: t, percent: t ? Math.round((d / t) * 99) : 0 }));
+            blob = new Blob(parts, { type: 'video/mp4' });
+          } else blob = await downloadHls(jobId, source.url, referer);
         }
         // chrome.downloads is not available in offscreen documents -> background saves it
         const blobUrl = URL.createObjectURL(blob);

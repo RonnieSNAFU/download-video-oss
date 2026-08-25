@@ -14,6 +14,8 @@ const jobs = new Map();         // jobId -> { jobId, tabId, candidateId, title, 
 let jobSeq = 0;
 
 const GV_RE = /^https:\/\/[^/]*\.googlevideo\.com\/videoplayback/i;
+const SESSION_BOUND = /(^|\.)googlevideo\.com$/i;
+const hostOf = (u) => { try { return new URL(u).hostname; } catch { return ''; } };
 
 // Adaptive streams: every range request is a different URL; normalise to the stream URL and tag itag/mime.
 function normalizeRanged(url, ct) {
@@ -217,14 +219,22 @@ async function runJob(job) {
   setJob(jobId, { state: 'running', percent: 0 });
   try {
     const { type, url } = video.source;
-    if (video.clip || type === 'hls' || type === 'merge') {
+    // Some hosts hand out URLs that only work for the session that requested them and refuse a fresh
+    // request from the downloads API. Fetching them from the extension page works, so use the engine.
+    const sessionBound = type === 'file' && (job.viaEngine || SESSION_BOUND.test(hostOf(url)));
+    if (video.clip || type === 'hls' || type === 'merge' || sessionBound) {
       if (type === 'dash') throw new Error('DASH streams not supported yet');
       await ensureOffscreen();
       await acquireReferer(tabId, video.pageUrl || url);
       job.usesReferer = true;
       const clipTag = video.clip ? ` ${fmtT(video.clip.start)}-${fmtT(video.clip.end)}` : '';
+      let ext = 'mp4';
+      if (!video.clip && type === 'file') {
+        const m = /\.(mp4|m4v|webm|mov)(\?|#|$)/i.exec(url);
+        ext = video.source.ext || (m ? m[1].toLowerCase() : 'mp4');
+      }
       // user-chosen name (clip editor) replaces "title [id]"
-      const filename = video.filenameBase ? `${safeName(video.filenameBase)}${clipTag}.mp4` : `${safeName(video.title)} [${video.id}]${clipTag}.mp4`;
+      const filename = video.filenameBase ? `${safeName(video.filenameBase)}${clipTag}.${ext}` : `${safeName(video.title)} [${video.id}]${clipTag}.${ext}`;
       const r = await chrome.runtime.sendMessage({ type: 'offscreen:job', jobId, source: video.source, referer: video.pageUrl, filename, clip: video.clip || null });
       if (!r || !r.ok) throw new Error((r && r.error) || 'engine busy');
     } else if (type === 'file') {
@@ -253,7 +263,15 @@ chrome.downloads.onChanged.addListener((delta) => {
     if (job.downloadId !== delta.id) continue;
     if (delta.state) {
       if (delta.state.current === 'complete') setJob(job.jobId, { state: 'done', percent: 100 });
-      else if (delta.state.current === 'interrupted') setJob(job.jobId, { state: 'error', error: (delta.error && delta.error.current) || 'interrupted' });
+      else if (delta.state.current === 'interrupted') {
+        const why = (delta.error && delta.error.current) || 'interrupted';
+        // the host refused a plain browser download: fetch it from the extension page instead
+        if (!job.viaEngine && job.video && job.video.source.type === 'file' && /FORBIDDEN|FAILED|NETWORK|BLOCKED/i.test(why)) {
+          job.viaEngine = true; job.downloadId = null;
+          setJob(job.jobId, { state: 'running', percent: 0, error: null });
+          runJob(job);
+        } else setJob(job.jobId, { state: 'error', error: why });
+      }
     }
   }
 });
