@@ -97,6 +97,14 @@ Engine notes: ffmpeg.wasm (vendored, about 32 MB, single-threaded) does cutting,
 MP3 and the decode step for the WebCodecs path. libvpx-vp9 and libopus crash in this wasm build,
 which is why VP9 and Opus go through WebCodecs instead.
 
+## Known limitation: some sites, including YouTube
+A few sites sign each stream for the player session that asked for it, and increasingly deliver
+media over a protocol with no plain URL to reuse. Nothing outside that player can fetch those
+streams, so downloads fail with HTTP 403. Player capture (above) works around it for what has
+already played, but there is no way to grab an unplayed video from such a site in the browser.
+For those, a desktop tool that runs the site's own player code, such as yt-dlp, is the right
+answer. Everything else the extension covers needs no such machinery.
+
 ## Install
 `chrome://extensions`, turn on Developer mode, Load unpacked, pick this folder.
 Permissions: `webRequest` and `<all_urls>` (to see media requests on any site), `downloads`,
@@ -123,6 +131,6 @@ and add it to `content_scripts.js` in `manifest.json` before `sites/generic.js`.
 - `core/registry.js`: plugin registry; `core/dom.js`: player discovery and stream-to-player matching;
   `core/content.js`: candidate list; `core/clipmodal.js`: clip editor; `core/preview.js`: in-page preview loader
 - `sites/*.js`: site plugins (named by the player technique they handle) and the generic fallback
-- `popup.html` / `popup.js`
+- `popup.html` / `popup.js`, `editor.html` / `editor.js` (clip a file from your computer)
 - `mux.min.js` (TS to fMP4), `mp4fix.js` (fMP4 to progressive MP4, MP4 sample reader)
 - `capture.js` (player capture, page world), `webm.js` + `webmremux.js` (WebM muxer and stream reader)

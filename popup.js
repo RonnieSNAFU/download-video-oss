@@ -168,6 +168,11 @@ $('pick').addEventListener('click', async () => {
   } catch { hint('Reload the page first, then try again.'); }
 });
 
+$('openfile').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('editor.html') });
+  window.close();
+});
+
 $('addtoggle').addEventListener('click', () => { $('addbox').classList.toggle('open'); $('addurl').focus(); });
 async function addUrl() {
   const url = $('addurl').value.trim();

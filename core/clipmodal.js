@@ -397,14 +397,14 @@
       const keepsSource = st.format === 'mp4-copy' && !st.noAudio;
       if (keepsSource && (normalSource || c.source.type === 'hls' || c.source.type === 'merge')) video2 = base; // plain download, no re-encode
       else video2 = { ...base, clip: { start: 0, end: duration || 1e7, format: st.format, codec: st.format === 'webm' ? st.codec : null, quality: st.quality, targetBytes: st.targetBytes, noAudio: st.noAudio } };
-      chrome.runtime.sendMessage({ type: 'download', videos: [video2] }).then(() => {
+      chrome.runtime.sendMessage({ type: 'download', tabId: window.__dvoTabId, videos: [video2] }).then(() => {
         status.className = 'status ok';
         status.textContent = video2.clip ? `Full video queued as ${fmtName()}. Progress is in the popup.` : 'Full video queued. Progress is in the popup.';
       }).catch((e) => { status.className = 'status err'; status.textContent = `Failed to start: ${e.message}`; });
     });
     go.addEventListener('click', () => {
       const video2 = { ...c, filenameBase: safe(nameIn.value), clip: { start: st.start, end: st.end, format: st.format, codec: st.format === 'webm' ? st.codec : null, quality: st.quality, targetBytes: st.targetBytes, noAudio: st.noAudio } };
-      chrome.runtime.sendMessage({ type: 'download', videos: [video2] }).then(() => {
+      chrome.runtime.sendMessage({ type: 'download', tabId: window.__dvoTabId, videos: [video2] }).then(() => {
         status.className = 'status ok';
         status.textContent = st.format === 'mp4-copy' ? 'Clip queued. Progress is on the badge and in the popup.' : 'Clip queued. Encoding runs in the browser; progress is in the popup.';
       }).catch((e) => { status.className = 'status err'; status.textContent = `Failed to start: ${e.message}`; });

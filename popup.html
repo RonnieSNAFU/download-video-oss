@@ -37,7 +37,8 @@
   button { flex: 1; padding: 10px 8px; border: 0; border-radius: 8px; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
   #dl { background: #e11d74; }
-  .tools { display: flex; gap: 6px; margin-top: 10px; }
+  .tools { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .tools button { flex: 1 1 45%; }
   .tools button { background: #1f2937; font-size: 11px; padding: 7px 4px; color: #d1d5db; }
   .tools button:hover { background: #273244; }
   #addbox { display: none; margin-top: 8px; gap: 6px; }
@@ -64,6 +65,7 @@
     <button id="pick" title="Click the video on the page you want">🎯 Pick on page</button>
     <button id="addtoggle" title="Paste a .m3u8, .mp4 or .mpd URL (for example from DevTools, Network tab)">＋ Add URL</button>
     <button id="diag" title="Copies a report of what the extension saw on this page. Send it to get the site supported.">🩺 Diagnostics</button>
+    <button id="openfile" title="Trim or convert a video file from your computer">📂 Clip a file</button>
   </div>
   <div id="addbox"><input id="addurl" placeholder="https://…/playlist.m3u8 or …/video.mp4"><button id="addgo">Add</button></div>
   <div id="hint" class="hint"></div>
