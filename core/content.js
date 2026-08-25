@@ -389,12 +389,50 @@
     };
   }
 
+  // Some hosts only serve a stream to the page that asked for it. Fetching from the page and saving
+  // with a link keeps the request identical to the player's own.
+  async function pageDownload({ jobId, url, filename }) {
+    const report = (patch) => chrome.runtime.sendMessage({ type: 'progress', jobId, ...patch }).catch(() => {});
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) return false;
+    const total = +r.headers.get('content-length') || 0;
+    (async () => {
+      try {
+        const reader = r.body.getReader();
+        const chunks = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          got += value.length;
+          report({ state: 'running', done: got, total, percent: total ? Math.round((got / total) * 99) : 0 });
+        }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob(chunks, { type: r.headers.get('content-type') || 'video/mp4' }));
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 120000);
+        report({ state: 'done', percent: 100, bytes: got });
+      } catch (e) {
+        report({ state: 'error', error: e.message });
+      }
+    })();
+    return true;
+  }
+
   let sniffTimer = 0;
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'sniffed') { // a new media request: recount after things settle
       clearTimeout(sniffTimer);
       sniffTimer = setTimeout(() => detect().catch(() => {}), 700);
       return false;
+    }
+    if (msg.type === 'pageDownload') {
+      pageDownload(msg).then((ok) => sendResponse({ ok })).catch(() => sendResponse({ ok: false }));
+      return true;
     }
     if (msg.type === 'pick') { startPick(); sendResponse({ ok: true }); return false; }
     if (msg.type === 'addUrl') {

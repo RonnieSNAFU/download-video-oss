@@ -222,6 +222,16 @@ async function runJob(job) {
     // Some hosts hand out URLs that only work for the session that requested them and refuse a fresh
     // request from the downloads API. Fetching them from the extension page works, so use the engine.
     const sessionBound = type === 'file' && (job.viaEngine || SESSION_BOUND.test(hostOf(url)));
+    if (sessionBound && !job.viaEngine && !job.triedPage) {
+      job.triedPage = true;
+      let ext = video.source.ext || 'mp4';
+      const em = /\.(mp4|m4v|webm|mov)(\?|#|$)/i.exec(url);
+      if (em) ext = em[1].toLowerCase();
+      const name = video.filenameBase ? `${safeName(video.filenameBase)}.${ext}` : `${safeName(video.title)} [${video.id}].${ext}`;
+      const r = await chrome.tabs.sendMessage(tabId, { type: 'pageDownload', jobId, url, filename: name }).catch(() => null);
+      if (r && r.ok) return; // the page streams it and reports progress itself
+      job.viaEngine = true;  // the page could not fetch it either: let the engine try
+    }
     if (video.clip || type === 'hls' || type === 'merge' || sessionBound) {
       if (type === 'dash') throw new Error('DASH streams not supported yet');
       await ensureOffscreen();
