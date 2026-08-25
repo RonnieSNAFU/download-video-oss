@@ -98,7 +98,7 @@ let busy = Promise.resolve();
 const lock = async () => { const prev = busy; let release; busy = new Promise((r) => (release = r)); await prev; return release; };
 
 // generic helper used by the WebCodecs path: run one ffmpeg command over in-memory files
-async function ffmpegExec(inputs, args, outputs) {
+async function ffmpegExec(inputs, args, outputs, onSeconds) {
   const release = await lock();
   try {
     const ff = await get();
@@ -106,6 +106,8 @@ async function ffmpegExec(inputs, args, outputs) {
     let logTail = '';
     const onLog = ({ message }) => { logTail = (logTail + '\n' + message).slice(-1500); };
     ff.on('log', onLog);
+    const onP = onSeconds ? ({ time }) => onSeconds(time / 1e6) : null;
+    if (onP) ff.on('progress', onP);
     try {
       for (const n of names) await ff.writeFile(n, inputs[n]);
       const ret = await ff.exec(args);
@@ -115,6 +117,7 @@ async function ffmpegExec(inputs, args, outputs) {
       return out;
     } finally {
       ff.off('log', onLog);
+      if (onP) ff.off('progress', onP);
       for (const n of [...names, ...outputs]) { try { await ff.deleteFile(n); } catch {} }
     }
   } finally { release(); }

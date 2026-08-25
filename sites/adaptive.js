@@ -68,39 +68,9 @@
   DVO.register({
     name: 'adaptive',
     match: (loc) => /(^|\.)youtube\.com$/.test(loc.hostname) || loc.hostname === 'youtu.be',
-    detect() {
-      const m = meta();
-      if (!m.videoId) return null;
-      const out = [];
-      const sd = m.pr && m.pr.streamingData;
-      if (sd) {
-        // progressive formats with a plain url (no cipher) are directly downloadable
-        for (const f of sd.formats || []) {
-          if (!f.url) continue;
-          const q = f.qualityLabel || `${f.height}p`;
-          out.push({
-            id: `${m.videoId}-${f.itag}`, title: `${m.title} (${q}, direct)`, thumbnail: m.thumbnail, duration: m.duration,
-            pageUrl: `https://www.youtube.com/watch?v=${m.videoId}`, source: { type: 'file', url: f.url, ext: 'mp4' },
-          });
-        }
-        // adaptive with plain urls: best mp4 video + best mp4 audio -> merge
-        const ad = (sd.adaptiveFormats || []).filter((f) => f.url && /mp4/.test(f.mimeType || ''));
-        const vids = ad.filter((f) => /^video/.test(f.mimeType)).sort((a, b) => (b.height - a.height) || (b.bitrate - a.bitrate));
-        const auds = ad.filter((f) => /^audio/.test(f.mimeType)).sort((a, b) => b.bitrate - a.bitrate);
-        if (vids.length && auds.length) {
-          const seenH = new Set();
-          for (const v of vids) {
-            if (seenH.has(v.height)) continue;
-            seenH.add(v.height);
-            out.push({
-              id: `${m.videoId}-${v.itag}+${auds[0].itag}`, title: `${m.title} (${v.qualityLabel || v.height + 'p'})`,
-              thumbnail: m.thumbnail, duration: m.duration, pageUrl: `https://www.youtube.com/watch?v=${m.videoId}`,
-              source: { type: 'merge', video: { url: v.url, size: +v.contentLength || 0 }, audio: { url: auds[0].url, size: +auds[0].contentLength || 0 } },
-            });
-          }
-        }
-      }
-      return out.length ? out : null;
-    },
+    // Only metadata. The stream URLs in the page's player response are bound to the session that
+    // asked for them and are refused (HTTP 403) when anything else fetches them, so the candidates
+    // come from the streams the player itself requested (see the sniffer in background.js).
+    detect: () => null,
   });
 })();

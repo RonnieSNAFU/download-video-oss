@@ -150,10 +150,17 @@
     if (dom) for (const u of [c.source.url, c.source.video && c.source.video.url, c.thumbnail].filter(Boolean)) { pageEl = dom.elementFor(u); if (pageEl) break; }
     // only fall back to "the" player when the page has exactly one: guessing the autoplaying one on a
     // feed would preview the wrong video
-    if (!pageEl && dom) { const vids = dom.allVideos(); pageEl = vids.length === 1 ? vids[0] : null; }
+    if (!pageEl && dom) {
+      const vids = dom.allVideos();
+      // one player, or exactly one that is actually playing: anything more is a guess (feeds autoplay)
+      const playing = vids.filter((v) => !v.paused && v.readyState >= 2 && v.videoWidth);
+      pageEl = vids.length === 1 ? vids[0] : (playing.length === 1 ? playing[0] : null);
+    }
 
     const note = mk('div', 'note');
-    const streamable = c.source.type === 'hls' || c.source.type === 'merge';
+    // split video+audio streams are expensive to assemble and the page is already playing them,
+    // so mirror the page player when there is one
+    const streamable = c.source.type === 'hls' || (c.source.type === 'merge' && !pageEl);
     let loadingPreview = false;
     if (directUrl) {
       video = mk('video', null, { src: directUrl, preload: 'metadata', playsInline: true });

@@ -48,6 +48,8 @@ function renderList() {
     m.title = c.source.url || (c.source.video && c.source.video.url) || '';
 
     const jbar = document.createElement('div'); jbar.className = 'jbar'; const fill = document.createElement('i'); jbar.appendChild(fill);
+    // no percentage yet (fetching a playlist, loading the encoder): show that something is happening
+    if (job && !job.percent && /running|remuxing|encoding|queued/.test(job.state)) jbar.classList.add('wait');
     const jst = document.createElement('div'); jst.className = 'jst';
     if (job) {
       fill.style.width = `${job.percent || 0}%`;
