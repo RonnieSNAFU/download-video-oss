@@ -513,6 +513,13 @@
   }
 
   let sniffTimer = 0;
+  // a player that just opened (a modal, a lightbox, a click-to-play card) is a new candidate:
+  // re-check once its media has loaded, without waiting for the popup
+  document.addEventListener('loadedmetadata', (e) => {
+    if (!e.target || e.target.tagName !== 'VIDEO') return;
+    clearTimeout(sniffTimer);
+    sniffTimer = setTimeout(() => detect().catch(() => {}), 400);
+  }, true);
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'sniffed') { // a new media request: recount after things settle
       clearTimeout(sniffTimer);
