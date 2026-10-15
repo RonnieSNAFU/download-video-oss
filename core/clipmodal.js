@@ -168,6 +168,18 @@
       ownVideo = true;
       stage.appendChild(video);
       note.textContent = 'Preview of the source file';
+    } else if (c.source.resolve && !c.source.url && window.DVO.resolve) {
+      video = mk('video', null, { preload: 'metadata', playsInline: true });
+      ownVideo = true;
+      if (c.thumbnail) video.poster = c.thumbnail;
+      stage.appendChild(video);
+      note.textContent = 'Fetching the link…';
+      window.DVO.resolve(c.source.resolve).then(({ url }) => {
+        c.source.url = url;
+        video.src = url;
+        note.textContent = 'Preview of the source file';
+        tryAutoPlay();
+      }).catch((e) => { note.textContent = e.message; });
     } else if (streamable) {
       // assemble the stream into our own player (independent of the page's player / scrolling)
       video = mk('video', null, { preload: 'metadata', playsInline: true });

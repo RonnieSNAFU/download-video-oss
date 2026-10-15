@@ -219,6 +219,12 @@ async function runJob(job) {
   setJob(jobId, { state: 'running', percent: 0 });
   try {
     const { type, url } = video.source;
+    if (!url && video.source.resolve) { // listed by a plugin; the link is only issued on request
+      const r = await chrome.tabs.sendMessage(tabId, { type: 'resolveSource', resolve: video.source.resolve }).catch(() => null);
+      if (!r || !r.ok) throw new Error((r && r.error) || 'could not get a link for this file');
+      video.source = { ...video.source, url: r.url };
+      return runJob(job); // same job, now with a link
+    }
     if (type === 'captured') { // assembled in the page from what its player buffered
       const base = video.filenameBase ? safeName(video.filenameBase) : `${safeName(video.title)} [${video.id}]`;
       const r = await chrome.tabs.sendMessage(tabId, { type: 'captureSave', jobId, groupId: video.source.groupId, filename: base }).catch(() => null);

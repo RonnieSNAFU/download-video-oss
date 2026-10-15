@@ -29,6 +29,12 @@
       }
       return out;
     },
+    // some plugins list files whose link is only issued on request: ask that plugin for it
+    async resolve(r) {
+      const site = sites.find((x) => x.name === (r && r.plugin) && x.resolve);
+      if (!site) throw new Error('no plugin can fetch this link');
+      return site.resolve(r);
+    },
     enrich(s) {
       for (const site of sites) {
         if (!site.enrich) continue;

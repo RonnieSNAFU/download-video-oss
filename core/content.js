@@ -526,6 +526,10 @@
       sniffTimer = setTimeout(() => detect().catch(() => {}), 700);
       return false;
     }
+    if (msg.type === 'resolveSource') {
+      DVO.resolve(msg.resolve).then((r) => sendResponse({ ok: true, url: r.url })).catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true;
+    }
     if (msg.type === 'captureSave') {
       captureSave(msg).then(sendResponse).catch((e) => sendResponse({ ok: false, error: e.message }));
       return true;
