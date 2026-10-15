@@ -3,6 +3,7 @@ let tabId = null;
 let candidates = [];
 let jobs = [];
 const selected = new Set(); // candidateIds
+let anchor = null;          // last plainly clicked card, for Shift+click ranges
 const fmtBytes = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 const fmtDur = (s) => {
@@ -75,14 +76,26 @@ function renderList() {
       } catch { hint('Reload the page first, then try again.'); }
     });
     item.append(check, thumb, info, clipBtn);
-    item.addEventListener('click', () => {
-      if (selected.has(c.candidateId)) selected.delete(c.candidateId);
-      else { selected.add(c.candidateId); chrome.tabs.sendMessage(tabId, { type: 'highlight', candidateId: c.candidateId }).catch(() => {}); }
+    item.addEventListener('click', (e) => {
+      const here = candidates.indexOf(c);
+      const from = anchor === null ? -1 : candidates.findIndex((x) => x.candidateId === anchor);
+      if (e.shiftKey && from >= 0) {
+        // range from the last clicked card; it takes that card's state (select or clear)
+        const on = selected.has(anchor);
+        const [a, b] = from < here ? [from, here] : [here, from];
+        for (let i = a; i <= b; i++) on ? selected.add(candidates[i].candidateId) : selected.delete(candidates[i].candidateId);
+      } else {
+        // plain click and Ctrl/Cmd+click both toggle one card
+        if (selected.has(c.candidateId)) selected.delete(c.candidateId);
+        else { selected.add(c.candidateId); chrome.tabs.sendMessage(tabId, { type: 'highlight', candidateId: c.candidateId }).catch(() => {}); }
+        anchor = c.candidateId;
+      }
       renderList(); renderButtons();
     });
+    item.addEventListener('mousedown', (e) => { if (e.shiftKey) e.preventDefault(); }); // no text selection on Shift+click
     list.appendChild(item);
   }
-  $('hdr').textContent = candidates.length === 1 ? 'Detected video' : `${candidates.length} sources. Click to select.`;
+  $('hdr').textContent = candidates.length === 1 ? 'Detected video' : `${candidates.length} sources. Click to select, Shift+click for a range.`;
   $('selall').textContent = selected.size === candidates.length ? 'clear' : 'select all';
 }
 

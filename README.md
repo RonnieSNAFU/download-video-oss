@@ -16,7 +16,7 @@ normal, seekable MP4 from the toolbar popup. No servers, no accounts, no telemet
    players appear, so it survives feeds that unload items as you scroll.
 
 The popup lists every candidate with a thumbnail, title, type and duration. Click to select
-(click again to unselect), or use "select all". Selecting an entry outlines its player on the page.
+(click again to unselect), Shift+click to select a range, or use "select all". Selecting an entry outlines its player on the page.
 
 ## Downloading
 - HLS: master playlist to best variant, AES-128 decryption, separate audio renditions merged.
@@ -27,7 +27,9 @@ The popup lists every candidate with a thumbnail, title, type and duration. Clic
 - Direct files: saved through `chrome.downloads`, streamed straight to disk.
 - DASH: detected but not downloadable yet.
 - Downloads run outside the tab (background worker plus an offscreen document), so the popup can
-  be closed. The badge shows progress. Two jobs run at a time per tab; each card has its own bar.
+  be closed. The badge shows progress and each card has its own bar. Plain files all download at once;
+  stream assembly, captured video and conversions run two at a time, since they hold the whole
+  video in memory.
 - A session `declarativeNetRequest` rule sends the page URL as Referer on the engine's own
   requests, because many CDNs refuse segment requests without one.
 

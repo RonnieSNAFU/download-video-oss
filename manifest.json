@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Download Video OSS",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Find and save videos from many sites as MP4. Trim and convert clips (WebM, GIF, audio) in a built-in editor. Open source.",
   "homepage_url": "https://github.com/RonnieSNAFU/download-video-oss",
   "icons": {

@@ -207,11 +207,20 @@ function enqueue(tabId, videos) {
   pump(tabId);
 }
 
+// Plain files stream straight to disk through Chrome, so they all start at once. Stream assembly,
+// captured video and conversions hold the whole video in memory (and the converter is single
+// threaded), so those run a couple at a time.
+const heavy = (j) => !!(j.video && (j.video.clip || /^(hls|merge|captured)$/.test(j.video.source.type)));
 function pump(tabId) {
-  const active = tabJobs(tabId).filter((j) => j.state === 'running' || j.state === 'remuxing' || j.state === 'encoding').length;
-  if (active >= MAX_ACTIVE_PER_TAB) return;
-  const next = tabJobs(tabId).find((j) => j.state === 'queued');
-  if (next) runJob(next);
+  const busy = tabJobs(tabId).filter((j) => j.state === 'running' || j.state === 'remuxing' || j.state === 'encoding');
+  let heavyBusy = busy.filter(heavy).length;
+  for (const j of tabJobs(tabId).filter((x) => x.state === 'queued')) {
+    if (heavy(j)) {
+      if (heavyBusy >= MAX_ACTIVE_PER_TAB) continue;
+      heavyBusy++;
+    }
+    runJob(j);
+  }
 }
 
 async function runJob(job) {
